@@ -29,6 +29,12 @@ const itensMenu = computed(() => {
       perfis: ['suporte_administrativo', 'administrador_tecnico'],
     },
     {
+      rota: '/financeiro/cobrancas',
+      label: 'Financeiro',
+      icone: 'pi pi-wallet',
+      perfis: ['encarregado', 'suporte_administrativo', 'diretoria', 'administrador_tecnico'],
+    },
+    {
       rota: '/importacao',
       label: 'Importação Inicial',
       icone: 'pi pi-upload',

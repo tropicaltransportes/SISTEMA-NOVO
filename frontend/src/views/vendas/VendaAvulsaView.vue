@@ -1,18 +1,26 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { supabase } from '../../lib/supabaseClient'
+import { useAuthStore } from '../../stores/auth'
 import { useToast } from 'primevue/usetoast'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Button from 'primevue/button'
 import Select from 'primevue/select'
 import InputNumber from 'primevue/inputnumber'
+import Tag from 'primevue/tag'
 
+const router = useRouter()
+const auth = useAuthStore()
 const toast = useToast()
+
+const podeGerarCobranca = () => ['suporte_administrativo', 'administrador_tecnico'].includes(auth.perfil)
 
 const vendas = ref([])
 const clientes = ref([])
 const pecas = ref([])
+const vendasCobradas = ref(new Set())
 const carregando = ref(true)
 const salvando = ref(false)
 
@@ -30,7 +38,7 @@ async function carregar() {
   const [respVendas, respClientes, respPecas] = await Promise.all([
     supabase
       .from('vendas_avulsas')
-      .select('id, criado_em, cliente:clientes(nome), venda_avulsa_itens(id, quantidade, valor_unitario, peca:pecas(descricao))')
+      .select('id, criado_em, cliente:clientes(id, nome), venda_avulsa_itens(id, quantidade, valor_unitario, peca:pecas(descricao))')
       .order('criado_em', { ascending: false })
       .limit(30),
     supabase.from('clientes').select('id, nome').is('deleted_at', null).order('nome'),
@@ -43,6 +51,15 @@ async function carregar() {
   }
   clientes.value = respClientes.data ?? []
   pecas.value = respPecas.data ?? []
+
+  const vendaIds = (vendas.value ?? []).map((v) => v.id)
+  if (vendaIds.length && podeGerarCobranca()) {
+    const { data: origens } = await supabase
+      .from('cobranca_origens')
+      .select('venda_avulsa_id, cobranca:cobrancas(status)')
+      .in('venda_avulsa_id', vendaIds)
+    vendasCobradas.value = new Set((origens ?? []).filter((o) => o.cobranca?.status !== 'cancelada').map((o) => o.venda_avulsa_id))
+  }
   carregando.value = false
 }
 
@@ -129,6 +146,18 @@ onMounted(carregar)
         <template #body="{ data }">{{ formatarMoeda(data.venda_avulsa_itens.reduce((s, i) => s + i.quantidade * i.valor_unitario, 0)) }}</template>
       </Column>
       <Column header="Data"><template #body="{ data }">{{ new Date(data.criado_em).toLocaleString('pt-BR') }}</template></Column>
+      <Column header="Cobrança" v-if="podeGerarCobranca()">
+        <template #body="{ data }">
+          <Tag v-if="vendasCobradas.has(data.id)" severity="success" value="Cobrança gerada" />
+          <Button
+            v-else
+            label="Gerar Cobrança"
+            size="small"
+            text
+            @click="router.push({ path: '/financeiro/cobrancas', query: { cliente_id: data.cliente.id, venda_id: data.id } })"
+          />
+        </template>
+      </Column>
     </DataTable>
   </div>
 </template>

@@ -39,6 +39,7 @@ const podeTransicionar = computed(() => ['encarregado', 'administrador_tecnico']
 const podeApontar = computed(() => ['executor', 'encarregado', 'administrador_tecnico'].includes(auth.perfil))
 const podeResponderChecklist = computed(() => ['executor', 'encarregado', 'administrador_tecnico'].includes(auth.perfil))
 const podeBaixarPeca = computed(() => ['executor', 'encarregado', 'suporte_administrativo', 'administrador_tecnico'].includes(auth.perfil))
+const podeGerarCobranca = computed(() => ['suporte_administrativo', 'administrador_tecnico'].includes(auth.perfil))
 
 async function carregar() {
   carregando.value = true
@@ -245,6 +246,13 @@ onMounted(carregar)
         @click="confirmarTransicao(t)"
       />
       <Button v-if="os.status === 'aguardando_teste'" label="Concluir (checklist)" size="small" severity="success" @click="concluir" />
+      <Button
+        v-if="os.status === 'concluida' && os.tipo === 'externa' && podeGerarCobranca"
+        label="Gerar Cobrança"
+        size="small"
+        icon="pi pi-wallet"
+        @click="router.push({ path: '/financeiro/cobrancas', query: { cliente_id: os.cliente.id, os_id: os.id } })"
+      />
       <Button v-if="os.status === 'concluida'" label="Liberar" size="small" severity="success" @click="liberar" />
     </div>
 
