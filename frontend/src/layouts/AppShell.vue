@@ -12,6 +12,9 @@ const itensMenu = computed(() => {
   const itens = [
     { rota: '/clientes', label: 'Clientes', icone: 'pi pi-building', perfis: null },
     { rota: '/veiculos', label: 'Veículos', icone: 'pi pi-car', perfis: null },
+    { rota: '/solicitacoes', label: 'Solicitações', icone: 'pi pi-inbox', perfis: null },
+    { rota: '/orcamentos', label: 'Orçamentos', icone: 'pi pi-file-edit', perfis: null },
+    { rota: '/os', label: 'Ordens de Serviço', icone: 'pi pi-wrench', perfis: null },
     { rota: '/estoque/pecas', label: 'Peças', icone: 'pi pi-box', perfis: null },
     {
       rota: '/estoque/nf-entrada',
@@ -20,10 +23,28 @@ const itensMenu = computed(() => {
       perfis: ['suporte_administrativo', 'administrador_tecnico'],
     },
     {
+      rota: '/vendas-avulsas',
+      label: 'Venda Avulsa',
+      icone: 'pi pi-shopping-cart',
+      perfis: ['suporte_administrativo', 'administrador_tecnico'],
+    },
+    {
       rota: '/importacao',
       label: 'Importação Inicial',
       icone: 'pi pi-upload',
       perfis: ['suporte_administrativo', 'administrador_tecnico'],
+    },
+    {
+      rota: '/admin/checklist',
+      label: 'Checklists Técnicos',
+      icone: 'pi pi-check-square',
+      perfis: ['encarregado', 'administrador_tecnico'],
+    },
+    {
+      rota: '/admin/faixas-acrescimo',
+      label: 'Faixas de Acréscimo',
+      icone: 'pi pi-percentage',
+      perfis: ['administrador_tecnico'],
     },
   ]
   return itens.filter((item) => !item.perfis || item.perfis.includes(perfil))
