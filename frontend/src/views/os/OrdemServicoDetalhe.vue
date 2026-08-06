@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuthStore } from '../../stores/auth'
@@ -20,7 +20,7 @@ const toast = useToast()
 const confirm = useConfirm()
 const auth = useAuthStore()
 
-const osId = route.params.id
+const osId = computed(() => route.params.id)
 const os = ref(null)
 const checklistItens = ref([])
 const respostas = ref([])
@@ -60,10 +60,10 @@ async function carregar() {
     supabase
       .from('ordens_servico')
       .select('id, tipo, status, data_abertura, data_liberacao, checklist_template_id, orcamento_id, os_origem_id, veiculo:veiculos(id, placa, prefixo, modelo), cliente:clientes(id, nome, tipo)')
-      .eq('id', osId)
+      .eq('id', osId.value)
       .single(),
-    supabase.from('os_executores').select('id, usuario_id, etapa, inicio, fim, observacao, usuario:profiles(nome)').eq('os_id', osId).order('inicio', { ascending: false }),
-    supabase.from('estoque_movimentos').select('id, quantidade, custo_unitario, criado_em, peca:pecas(sku, descricao)').eq('origem_tipo', 'os').eq('origem_id', osId).order('criado_em', { ascending: false }),
+    supabase.from('os_executores').select('id, usuario_id, etapa, inicio, fim, observacao, usuario:profiles(nome)').eq('os_id', osId.value).order('inicio', { ascending: false }),
+    supabase.from('estoque_movimentos').select('id, quantidade, custo_unitario, criado_em, peca:pecas(sku, descricao)').eq('origem_tipo', 'os').eq('origem_id', osId.value).order('criado_em', { ascending: false }),
     supabase.from('pecas').select('id, sku, descricao, saldo_atual').is('deleted_at', null).order('descricao'),
     supabase.from('checklist_templates').select('id, nome').eq('ativo', true).order('nome'),
   ])
@@ -83,7 +83,7 @@ async function carregar() {
     os.value.os_origem_id
       ? supabase.from('ordens_servico').select('id, veiculo:veiculos(placa, prefixo)').eq('id', os.value.os_origem_id).single()
       : Promise.resolve({ data: null }),
-    supabase.from('ordens_servico').select('id, status, data_abertura, veiculo:veiculos(placa, prefixo)').eq('os_origem_id', osId),
+    supabase.from('ordens_servico').select('id, status, data_abertura, veiculo:veiculos(placa, prefixo)').eq('os_origem_id', osId.value),
   ])
   osOrigem.value = respOsOrigem.data
   osGarantias.value = respOsGarantias.data ?? []
@@ -91,7 +91,7 @@ async function carregar() {
   if (os.value.checklist_template_id) {
     const [respItens, respResp] = await Promise.all([
       supabase.from('checklist_template_itens').select('id, descricao, obrigatorio').eq('template_id', os.value.checklist_template_id),
-      supabase.from('os_checklist_respostas').select('id, template_item_id, ok').eq('os_id', osId),
+      supabase.from('os_checklist_respostas').select('id, template_item_id, ok').eq('os_id', osId.value),
     ])
     checklistItens.value = respItens.data ?? []
     respostas.value = respResp.data ?? []
@@ -122,7 +122,7 @@ const transicoesDisponiveis = computed(() => {
 })
 
 async function transicionar(next) {
-  const { error } = await supabase.rpc('rpc_transicionar_os', { p_os_id: osId, p_novo_status: next })
+  const { error } = await supabase.rpc('rpc_transicionar_os', { p_os_id: osId.value, p_novo_status: next })
   if (error) {
     toast.add({ severity: 'error', summary: 'Erro ao transicionar', detail: error.message, life: 6000 })
     return
@@ -143,7 +143,7 @@ function confirmarTransicao(t) {
 }
 
 async function concluir() {
-  const { error } = await supabase.rpc('rpc_concluir_os', { p_os_id: osId })
+  const { error } = await supabase.rpc('rpc_concluir_os', { p_os_id: osId.value })
   if (error) {
     toast.add({ severity: 'error', summary: 'Não é possível concluir', detail: error.message, life: 7000 })
     return
@@ -153,7 +153,7 @@ async function concluir() {
 }
 
 async function liberar() {
-  const { error } = await supabase.rpc('rpc_liberar_os', { p_os_id: osId })
+  const { error } = await supabase.rpc('rpc_liberar_os', { p_os_id: osId.value })
   if (error) {
     toast.add({ severity: 'error', summary: 'Não é possível liberar', detail: error.message, life: 7000 })
     return
@@ -163,7 +163,7 @@ async function liberar() {
 }
 
 async function abrirGarantia() {
-  const { data, error } = await supabase.rpc('rpc_criar_os_garantia', { p_os_origem_id: osId })
+  const { data, error } = await supabase.rpc('rpc_criar_os_garantia', { p_os_origem_id: osId.value })
   if (error) {
     toast.add({ severity: 'error', summary: 'Não é possível abrir garantia', detail: error.message, life: 7000 })
     return
@@ -185,7 +185,7 @@ function confirmarAbrirGarantia() {
 
 // ---------- Checklist ----------
 async function definirChecklist(templateId) {
-  const { error } = await supabase.rpc('rpc_definir_checklist_os', { p_os_id: osId, p_checklist_template_id: templateId })
+  const { error } = await supabase.rpc('rpc_definir_checklist_os', { p_os_id: osId.value, p_checklist_template_id: templateId })
   if (error) {
     toast.add({ severity: 'error', summary: 'Erro ao definir checklist', detail: error.message, life: 6000 })
     return
@@ -195,7 +195,7 @@ async function definirChecklist(templateId) {
 
 async function alternarResposta(item, valor) {
   const { error } = await supabase.from('os_checklist_respostas').upsert(
-    { os_id: osId, template_item_id: item.id, ok: valor, respondido_por: auth.profile.id, respondido_em: new Date().toISOString() },
+    { os_id: osId.value, template_item_id: item.id, ok: valor, respondido_por: auth.profile.id, respondido_em: new Date().toISOString() },
     { onConflict: 'os_id,template_item_id' }
   )
   if (error) {
@@ -215,7 +215,7 @@ async function iniciarApontamento() {
     return
   }
   const { error } = await supabase.from('os_executores').insert({
-    os_id: osId,
+    os_id: osId.value,
     usuario_id: auth.profile.id,
     etapa: formApontamento.value.etapa,
     inicio: new Date().toISOString(),
@@ -248,7 +248,7 @@ async function baixarPeca() {
     return
   }
   const { error } = await supabase.rpc('rpc_baixar_peca_os', {
-    p_os_id: osId,
+    p_os_id: osId.value,
     p_peca_id: formBaixa.value.peca_id,
     p_quantidade: formBaixa.value.quantidade,
   })
@@ -261,7 +261,7 @@ async function baixarPeca() {
   await carregar()
 }
 
-onMounted(carregar)
+watch(osId, carregar, { immediate: true })
 </script>
 
 <template>
