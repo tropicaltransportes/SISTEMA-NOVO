@@ -28,6 +28,8 @@ const executores = ref([])
 const movimentos = ref([])
 const pecas = ref([])
 const checklistTemplates = ref([])
+const osOrigem = ref(null)
+const osGarantias = ref([])
 const carregando = ref(true)
 
 const severidadeStatus = {
@@ -40,13 +42,24 @@ const podeApontar = computed(() => ['executor', 'encarregado', 'administrador_te
 const podeResponderChecklist = computed(() => ['executor', 'encarregado', 'administrador_tecnico'].includes(auth.perfil))
 const podeBaixarPeca = computed(() => ['executor', 'encarregado', 'suporte_administrativo', 'administrador_tecnico'].includes(auth.perfil))
 const podeGerarCobranca = computed(() => ['suporte_administrativo', 'administrador_tecnico'].includes(auth.perfil))
+const podeAbrirGarantia = computed(() => ['encarregado', 'administrador_tecnico'].includes(auth.perfil))
+
+const NOVENTA_DIAS_MS = 90 * 24 * 60 * 60 * 1000
+const prazoGarantiaAte = computed(() => {
+  if (!os.value?.data_liberacao) return null
+  return new Date(new Date(os.value.data_liberacao).getTime() + NOVENTA_DIAS_MS)
+})
+const dentroDoPrazoGarantia = computed(() => {
+  if (!os.value || os.value.status !== 'liberada' || os.value.os_origem_id) return false
+  return prazoGarantiaAte.value && Date.now() <= prazoGarantiaAte.value.getTime()
+})
 
 async function carregar() {
   carregando.value = true
   const [respOs, respExec, respMov, respPecas, respTemplates] = await Promise.all([
     supabase
       .from('ordens_servico')
-      .select('id, tipo, status, data_abertura, data_liberacao, checklist_template_id, orcamento_id, veiculo:veiculos(id, placa, prefixo, modelo), cliente:clientes(id, nome, tipo)')
+      .select('id, tipo, status, data_abertura, data_liberacao, checklist_template_id, orcamento_id, os_origem_id, veiculo:veiculos(id, placa, prefixo, modelo), cliente:clientes(id, nome, tipo)')
       .eq('id', osId)
       .single(),
     supabase.from('os_executores').select('id, usuario_id, etapa, inicio, fim, observacao, usuario:profiles(nome)').eq('os_id', osId).order('inicio', { ascending: false }),
@@ -65,6 +78,15 @@ async function carregar() {
   movimentos.value = respMov.data ?? []
   pecas.value = respPecas.data ?? []
   checklistTemplates.value = respTemplates.data ?? []
+
+  const [respOsOrigem, respOsGarantias] = await Promise.all([
+    os.value.os_origem_id
+      ? supabase.from('ordens_servico').select('id, veiculo:veiculos(placa, prefixo)').eq('id', os.value.os_origem_id).single()
+      : Promise.resolve({ data: null }),
+    supabase.from('ordens_servico').select('id, status, data_abertura, veiculo:veiculos(placa, prefixo)').eq('os_origem_id', osId),
+  ])
+  osOrigem.value = respOsOrigem.data
+  osGarantias.value = respOsGarantias.data ?? []
 
   if (os.value.checklist_template_id) {
     const [respItens, respResp] = await Promise.all([
@@ -138,6 +160,27 @@ async function liberar() {
   }
   toast.add({ severity: 'success', summary: 'OS liberada', life: 3000 })
   await carregar()
+}
+
+async function abrirGarantia() {
+  const { data, error } = await supabase.rpc('rpc_criar_os_garantia', { p_os_origem_id: osId })
+  if (error) {
+    toast.add({ severity: 'error', summary: 'Não é possível abrir garantia', detail: error.message, life: 7000 })
+    return
+  }
+  toast.add({ severity: 'success', summary: 'OS de garantia criada', life: 3000 })
+  router.push('/os/' + data)
+}
+
+function confirmarAbrirGarantia() {
+  confirm.require({
+    message: 'Abrir uma OS de garantia vinculada a esta? O cliente não será cobrado.',
+    header: 'Confirmar abertura de garantia',
+    icon: 'pi pi-shield',
+    acceptLabel: 'Abrir Garantia',
+    rejectLabel: 'Voltar',
+    accept: abrirGarantia,
+  })
 }
 
 // ---------- Checklist ----------
@@ -235,6 +278,19 @@ onMounted(carregar)
     <p><strong>Cliente:</strong> {{ os.cliente?.nome }} &nbsp;|&nbsp; <strong>Tipo:</strong> {{ os.tipo }} &nbsp;|&nbsp; <strong>Aberta em:</strong> {{ new Date(os.data_abertura).toLocaleString('pt-BR') }}</p>
     <p v-if="os.data_liberacao"><strong>Liberada em:</strong> {{ new Date(os.data_liberacao).toLocaleString('pt-BR') }}</p>
 
+    <p v-if="osOrigem" class="hint">
+      Esta OS é garantia da
+      <router-link :to="'/os/' + osOrigem.id">OS {{ osOrigem.veiculo?.placa }}<span v-if="osOrigem.veiculo?.prefixo"> ({{ osOrigem.veiculo.prefixo }})</span></router-link>
+      — sem cobrança ao cliente.
+    </p>
+    <div v-if="osGarantias.length > 0" class="hint">
+      Garantia(s) aberta(s) a partir desta OS:
+      <router-link v-for="g in osGarantias" :key="g.id" :to="'/os/' + g.id" style="margin-right: 0.5rem">
+        {{ g.veiculo?.placa }} ({{ g.status }})
+      </router-link>
+    </div>
+    <p v-if="dentroDoPrazoGarantia" class="hint">Garantia até {{ prazoGarantiaAte.toLocaleDateString('pt-BR') }}.</p>
+
     <div class="acoes-status" v-if="podeTransicionar">
       <Button
         v-for="t in transicoesDisponiveis"
@@ -254,6 +310,14 @@ onMounted(carregar)
         @click="router.push({ path: '/financeiro/cobrancas', query: { cliente_id: os.cliente.id, os_id: os.id } })"
       />
       <Button v-if="os.status === 'concluida'" label="Liberar" size="small" severity="success" @click="liberar" />
+      <Button
+        v-if="dentroDoPrazoGarantia && podeAbrirGarantia"
+        label="Abrir Garantia"
+        size="small"
+        icon="pi pi-shield"
+        severity="warn"
+        @click="confirmarAbrirGarantia"
+      />
     </div>
 
     <div class="secao">

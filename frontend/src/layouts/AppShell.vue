@@ -10,6 +10,12 @@ const router = useRouter()
 const itensMenu = computed(() => {
   const perfil = auth.perfil
   const itens = [
+    {
+      rota: '/dashboard',
+      label: 'Dashboard',
+      icone: 'pi pi-chart-bar',
+      perfis: ['encarregado', 'suporte_administrativo', 'diretoria', 'administrador_tecnico'],
+    },
     { rota: '/clientes', label: 'Clientes', icone: 'pi pi-building', perfis: null },
     { rota: '/veiculos', label: 'Veículos', icone: 'pi pi-car', perfis: null },
     { rota: '/solicitacoes', label: 'Solicitações', icone: 'pi pi-inbox', perfis: null },

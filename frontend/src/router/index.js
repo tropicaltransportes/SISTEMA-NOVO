@@ -68,6 +68,12 @@ const routes = [
         meta: { perfis: ['suporte_administrativo', 'administrador_tecnico'] },
       },
       {
+        path: 'dashboard',
+        name: 'dashboard',
+        component: () => import('../views/dashboard/DashboardView.vue'),
+        meta: { perfis: ['encarregado', 'suporte_administrativo', 'diretoria', 'administrador_tecnico'] },
+      },
+      {
         path: 'financeiro/cobrancas',
         name: 'financeiro-cobrancas',
         component: () => import('../views/financeiro/CobrancasList.vue'),
