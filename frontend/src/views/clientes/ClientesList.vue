@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { supabase } from '../../lib/supabaseClient'
 import { useToast } from 'primevue/usetoast'
 import { useConfirm } from 'primevue/useconfirm'
@@ -13,6 +14,7 @@ import Tag from 'primevue/tag'
 import IconField from 'primevue/iconfield'
 import InputIcon from 'primevue/inputicon'
 
+const router = useRouter()
 const toast = useToast()
 const confirm = useConfirm()
 
@@ -131,6 +133,8 @@ onMounted(carregar)
       :rows="15"
       dataKey="id"
       stripedRows
+      @row-click="(e) => router.push(`/clientes/${e.data.id}`)"
+      style="cursor: pointer"
     >
       <Column field="nome" header="Nome" sortable />
       <Column field="documento" header="Documento" />
@@ -143,14 +147,14 @@ onMounted(carregar)
       </Column>
       <Column header="Ações" style="width: 140px">
         <template #body="{ data }">
-          <Button icon="pi pi-pencil" text rounded @click="abrirEdicao(data)" />
+          <Button icon="pi pi-pencil" text rounded @click.stop="abrirEdicao(data)" />
           <Button
             v-if="data.tipo !== 'interno'"
             icon="pi pi-ban"
             text
             rounded
             severity="danger"
-            @click="confirmarInativacao(data)"
+            @click.stop="confirmarInativacao(data)"
           />
         </template>
       </Column>

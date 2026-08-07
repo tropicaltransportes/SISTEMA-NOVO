@@ -127,14 +127,14 @@ onMounted(carregar)
 
     <IconField class="busca">
       <InputIcon class="pi pi-search" />
-      <InputText v-model="filtro" placeholder="Buscar por placa ou prefixo" />
+      <InputText v-model="filtro" placeholder="Buscar por placa, prefixo ou proprietário" />
     </IconField>
 
     <DataTable
       :value="veiculos"
       :loading="carregando"
       :filters="{ global: { value: filtro, matchMode: 'contains' } }"
-      :globalFilterFields="['placa', 'prefixo']"
+      :globalFilterFields="['placa', 'prefixo', 'cliente.nome']"
       paginator
       :rows="15"
       dataKey="id"
