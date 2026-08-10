@@ -41,6 +41,12 @@ const routes = [
         meta: { perfis: ['suporte_administrativo', 'administrador_tecnico'] },
       },
       {
+        path: 'estoque/ajustes',
+        name: 'estoque-ajustes',
+        component: () => import('../views/estoque/AjustesEstoqueList.vue'),
+        meta: { perfis: ['suporte_administrativo', 'administrador_tecnico'] },
+      },
+      {
         path: 'importacao',
         name: 'importacao',
         component: () => import('../views/importacao/ImportacaoInicial.vue'),
