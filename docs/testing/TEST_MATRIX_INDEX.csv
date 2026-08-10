@@ -1,0 +1,177 @@
+﻿ID,Módulo,Cenário,Criticidade,Camada,Automação,Regra
+AUT-001,Autenticação,Login válido,Alta,API/E2E,Sim,BR-028
+AUT-002,Autenticação,Senha inválida,Alta,API/E2E,Sim,BR-028
+AUT-003,Autenticação,Usuário inexistente,Alta,API,Sim,BR-040
+AUT-004,Autenticação,Usuário inativo,Alta,API/E2E,Sim,BR-028
+AUT-005,Autenticação,Endpoint protegido sem login,Crítica,API,Sim,BR-028
+AUT-006,Autenticação,Token/sessão inválida,Alta,API,Sim,BR-040
+AUT-007,Autenticação,Logout,Média,API/E2E,Sim,BR-040
+AUT-008,Autenticação,Elevação indevida de perfil,Crítica,API,Sim,BR-028
+AUT-009,Autenticação,Acesso direto por URL,Alta,API/E2E,Sim,BR-028
+AUT-010,Autenticação,Credenciais em resposta/log,Alta,Manual/API,Parcial,BR-040
+CAD-001,Cadastros,Cadastrar cliente externo válido,Alta,API/E2E,Sim,BR-001
+CAD-002,Cadastros,Cadastrar cliente interno válido,Alta,API/E2E,Sim,BR-001
+CAD-003,Cadastros,Campo obrigatório ausente,Média,API/E2E,Sim,BR-001
+CAD-004,Cadastros,Duplicidade de documento,Alta,API,Sim,BR-027
+CAD-005,Cadastros,Cadastrar veículo,Alta,API/E2E,Sim,BR-002
+CAD-006,Cadastros,Placa duplicada,Alta,API,Sim,BR-002
+CAD-007,Cadastros,Veículo sem cliente,Média,API,Sim,BR-002
+CAD-008,Cadastros,Alterar dados do cliente,Média,API/E2E,Sim,BR-027
+CAD-009,Cadastros,Inativar cliente com histórico,Alta,API/E2E,Sim,BR-002
+CAD-010,Cadastros,Excluir cliente com histórico,Alta,API,Sim,BR-026
+CAD-011,Cadastros,Troca de proprietário/vínculo,Alta,API,Sim,BR-027
+CAD-012,Cadastros,Pesquisa de histórico do veículo,Média,API/E2E,Sim,BR-002
+ORC-001,Orçamento,Criar orçamento válido,Alta,API/E2E,Sim,BR-003
+ORC-002,Orçamento,Orçamento sem cliente,Alta,API,Sim,BR-003
+ORC-003,Orçamento,Orçamento sem veículo,Alta,API,Sim,BR-002
+ORC-004,Orçamento,Adicionar serviço,Alta,API/E2E,Sim,BR-003
+ORC-005,Orçamento,Adicionar peça,Alta,API/E2E,Sim,BR-014
+ORC-006,Orçamento,Alterar quantidade,Alta,Unit/API,Sim,BR-003
+ORC-007,Orçamento,Aplicar desconto,Alta,Unit/API/E2E,Sim,BR-011
+ORC-008,Orçamento,Desconto inválido,Alta,Unit/API,Sim,BR-011
+ORC-009,Orçamento,Quantidade zero,Alta,API,Sim,BR-003
+ORC-010,Orçamento,Quantidade negativa,Crítica,API,Sim,BR-003
+ORC-011,Orçamento,Preço negativo,Crítica,API,Sim,BR-003
+ORC-012,Orçamento,Total consistente,Crítica,Unit/API,Sim,BR-003
+ORC-013,Orçamento,Gerar PDF,Média,E2E/Manual,Parcial,BR-004
+ORC-014,Orçamento,Marcar como enviado,Alta,API/E2E,Sim,BR-004
+ORC-015,Orçamento,Editar orçamento enviado,Crítica,API,Sim,BR-007
+ORC-016,Orçamento,Duplo clique ao salvar/enviar,Alta,API/E2E,Sim,BR-033
+APR-001,Aprovação,Aprovação integral,Crítica,API/E2E,Sim,BR-005
+APR-002,Aprovação,Aprovação parcial,Crítica,API/E2E,Sim,BR-006
+APR-003,Aprovação,Reprovação integral,Alta,API/E2E,Sim,BR-006
+APR-004,Aprovação,Registrar aprovação por sistema,Alta,API/E2E,Sim,BR-005
+APR-005,Aprovação,Registrar aprovação por e-mail,Alta,API/E2E,Parcial,BR-005
+APR-006,Aprovação,Registrar aprovação verbal,Alta,API/E2E,Parcial,BR-005
+APR-007,Aprovação,Aprovação por usuário não autorizado,Crítica,API,Sim,BR-028
+APR-008,Aprovação,Alterar preço após aprovação,Crítica,API/E2E,Sim,BR-007
+APR-009,Aprovação,Alterar quantidade após aprovação,Crítica,API,Sim,BR-007
+APR-010,Aprovação,Adicionar item após aprovação,Crítica,API/E2E,Sim,BR-009
+APR-011,Aprovação,Apagar evidência de aprovação,Crítica,API,Sim,BR-026
+APR-012,Aprovação,Repetir aprovação,Alta,API,Sim,BR-033
+OS-001,Ordem de Serviço,Converter orçamento aprovado,Crítica,API/E2E,Sim,BR-008
+OS-002,Ordem de Serviço,Converter aprovação parcial,Crítica,API/E2E,Sim,BR-006
+OS-003,Ordem de Serviço,Converter sem aprovação,Crítica,API,Sim,BR-008
+OS-004,Ordem de Serviço,Conversão duplicada,Crítica,API,Sim,BR-008
+OS-005,Ordem de Serviço,Herança de cliente/veículo,Alta,API,Sim,BR-008
+OS-006,Ordem de Serviço,Herança de valores,Crítica,API,Sim,BR-008
+OS-007,Ordem de Serviço,Mudança de estado válida,Alta,API/E2E,Sim,BR-035
+OS-008,Ordem de Serviço,Pular estado obrigatório,Alta,API,Sim,BR-035
+OS-009,Ordem de Serviço,Reabrir encerrada,Crítica,API,Sim,BR-026
+OS-010,Ordem de Serviço,Cancelar OS com movimentação,Crítica,API,Sim,BR-016
+OS-011,Ordem de Serviço,Duplo início,Média,API,Sim,BR-033
+OS-012,Ordem de Serviço,Excluir OS encerrada,Crítica,API,Sim,BR-026
+ADC-001,Adicionais,Criar adicional,Crítica,API/E2E,Sim,BR-009
+ADC-002,Adicionais,Executar adicional sem aprovação,Crítica,API,Sim,BR-009
+ADC-003,Adicionais,Aprovar adicional,Alta,API/E2E,Sim,BR-009
+ADC-004,Adicionais,Reprovar adicional,Crítica,API,Sim,BR-006
+ADC-005,Adicionais,Alterar adicional aprovado,Crítica,API,Sim,BR-007
+ADC-006,Adicionais,Preservar orçamento original,Alta,API/E2E,Sim,BR-027
+ADC-007,Adicionais,Cobrança sem adicional rejeitado,Crítica,Unit/API,Sim,BR-006
+ADC-008,Adicionais,Dupla criação por clique,Alta,API/E2E,Sim,BR-033
+EST-001,Estoque,Entrada por compra,Crítica,API/E2E,Sim,BR-017
+EST-002,Estoque,Entrada com quantidade inválida,Crítica,API,Sim,BR-017
+EST-003,Estoque,Entrada com custo inválido,Alta,API,Sim,BR-017
+EST-004,Estoque,Baixa na conversão para OS,Crítica,API,Sim,BR-014
+EST-005,Estoque,Baixa vinculada à OS,Crítica,API,Sim,BR-014
+EST-006,Estoque,Venda avulsa,Alta,API/E2E,Sim,BR-032
+EST-007,Estoque,Saldo insuficiente,Crítica,API,Sim,BR-015
+EST-008,Estoque,Quantidade negativa na saída,Crítica,API,Sim,BR-015
+EST-009,Estoque,Dupla baixa da mesma OS,Crítica,API,Sim,BR-033
+EST-010,Estoque,Estorno de baixa,Crítica,API,Sim,BR-016
+EST-011,Estoque,Excluir movimentação,Crítica,API,Sim,BR-026
+EST-012,Estoque,Alterar custo histórico,Alta,API,Sim,BR-027
+EST-013,Estoque,Concorrência de saldo,Crítica,Integration,Sim,BR-034
+EST-014,Estoque,Reconciliação de saldo,Crítica,Unit/Integration,Sim,BR-014
+EST-015,Estoque,Sem reserva obrigatória,Média,API,Sim,BR-038
+EST-016,Estoque,Venda e OS concorrentes,Crítica,Integration,Sim,BR-034
+EXE-001,Execução,Associar executor,Alta,API/E2E,Sim,BR-018
+EXE-002,Execução,Múltiplos executores,Alta,API/E2E,Sim,BR-018
+EXE-003,Execução,Remover executor,Alta,API,Sim,BR-018
+EXE-004,Execução,Registrar observação,Média,API/E2E,Sim,BR-027
+EXE-005,Execução,Foto antes,Média,E2E/API,Parcial,BR-019
+EXE-006,Execução,Foto depois,Média,E2E/API,Parcial,BR-019
+EXE-007,Execução,Upload inválido,Média,API/E2E,Sim,BR-040
+EXE-008,Execução,Executor altera preço,Crítica,API,Sim,BR-028
+EXE-009,Execução,Executor aprova orçamento,Crítica,API,Sim,BR-028
+EXE-010,Execução,Registrar serviço executado,Alta,API/E2E,Sim,BR-027
+CON-001,Conclusão,Concluir OS válida,Alta,API/E2E,Sim,BR-021
+CON-002,Conclusão,Concluir com item aprovado pendente,Alta,API,Sim,BR-021
+CON-003,Conclusão,Checklist completo,Alta,E2E/API,Sim,BR-020
+CON-004,Conclusão,Checklist incompleto,Alta,E2E/API,Sim,BR-020
+CON-005,Conclusão,Gerar relatório,Média,E2E/Manual,Parcial,BR-025
+CON-006,Conclusão,Relatório com múltiplos executores,Média,Manual/E2E,Parcial,BR-018
+CON-007,Conclusão,Alterar execução após conclusão,Alta,API,Sim,BR-026
+CON-008,Conclusão,Conclusão repetida,Alta,API,Sim,BR-033
+FIN-001,Financeiro,Calcular total externo,Crítica,Unit/API,Sim,BR-001
+FIN-002,Financeiro,Não cobrar item rejeitado,Crítica,Unit/API,Sim,BR-006
+FIN-003,Financeiro,Aplicar desconto final autorizado,Alta,Unit/API,Sim,BR-011
+FIN-004,Financeiro,Parcelamento,Crítica,Unit/API/E2E,Sim,BR-012
+FIN-005,Financeiro,Parcelamento inconsistente,Alta,API,Sim,BR-012
+FIN-006,Financeiro,Registrar pagamento confirmado,Alta,API/E2E,Sim,BR-013
+FIN-007,Financeiro,Presumir pagamento,Crítica,API,Sim,BR-013
+FIN-008,Financeiro,Pagamento parcial,Alta,Unit/API,Sim,BR-012
+FIN-009,Financeiro,Alterar valor após pagamento,Crítica,API,Sim,BR-027
+FIN-010,Financeiro,Cliente interno,Alta,API,Parcial,BR-036
+LIB-001,Liberação,Liberar após pagamento,Crítica,API/E2E,Sim,BR-023
+LIB-002,Liberação,Liberar com termo de débito,Crítica,API/E2E,Sim,BR-023
+LIB-003,Liberação,Sem pagamento e sem termo,Crítica,API/E2E,Sim,BR-023
+LIB-004,Liberação,Executor tenta liberar,Crítica,API,Sim,BR-022
+LIB-005,Liberação,Encarregado libera,Alta,API/E2E,Sim,BR-022
+LIB-006,Liberação,Administrativo libera,Alta,API/E2E,Sim,BR-022
+LIB-007,Liberação,Liberar com checklist incompleto,Alta,API/E2E,Sim,BR-020
+LIB-008,Liberação,Dupla liberação,Alta,API,Sim,BR-033
+GAR-001,Garantia,Iniciar garantia,Alta,Unit/API,Sim,BR-024
+GAR-002,Garantia,Retorno dentro de 90 dias,Alta,API/E2E,Sim,BR-024
+GAR-003,Garantia,Retorno após 90 dias,Média,API,Sim,BR-024
+GAR-004,Garantia,Vínculo com OS original,Alta,API/E2E,Sim,BR-024
+GAR-005,Garantia,Item não relacionado,Alta,API,Sim,BR-024
+GAR-006,Garantia,Alterar data para forçar garantia,Crítica,API,Sim,BR-027
+GAR-007,Garantia,Relatório de garantia,Média,Manual/E2E,Parcial,BR-025
+GAR-008,Garantia,Garantia duplicada por clique,Alta,API/E2E,Sim,BR-033
+AUD-001,Auditoria,Alteração de preço,Crítica,API,Sim,BR-027
+AUD-002,Auditoria,Mudança de status,Alta,API,Sim,BR-027
+AUD-003,Auditoria,Cancelamento,Alta,API,Sim,BR-027
+AUD-004,Auditoria,Estorno de estoque,Crítica,API,Sim,BR-016
+AUD-005,Auditoria,Alteração de aprovação,Crítica,API,Sim,BR-027
+AUD-006,Auditoria,Tentativa de exclusão histórica,Crítica,API,Sim,BR-026
+PER-001,Permissões,Executor altera preço,Crítica,API,Sim,BR-028
+PER-002,Permissões,Executor cancela OS,Crítica,API,Sim,BR-028
+PER-003,Permissões,Encarregado altera preço,Alta,API/E2E,Sim,BR-010
+PER-004,Permissões,Usuário sem perfil tenta liberar,Crítica,API,Sim,BR-022
+PER-005,Permissões,Manipulação de ID,Crítica,API,Sim,BR-040
+PER-006,Permissões,Botão oculto e API protegida,Alta,API/E2E,Sim,BR-028
+DOC-001,Documentos,PDF orçamento versão correta,Alta,Manual/E2E,Parcial,BR-004
+DOC-002,Documentos,PDF após alteração,Alta,Manual/E2E,Parcial,BR-007
+DOC-003,Documentos,Relatório encerramento,Alta,Manual/E2E,Parcial,BR-025
+DOC-004,Documentos,Termo de débito vinculado,Crítica,API/E2E,Parcial,BR-023
+DOC-005,Documentos,Documento órfão,Média,API,Sim,BR-040
+DOC-006,Documentos,Acesso a anexo por usuário indevido,Alta,API,Sim,BR-040
+E2E-001,Fluxo E2E,Cliente externo normal,Crítica,E2E,Sim,BR-001
+E2E-002,Fluxo E2E,Aprovação parcial + adicional rejeitado,Crítica,E2E,Sim,BR-006
+E2E-003,Fluxo E2E,Sem estoque suficiente,Crítica,E2E,Sim,BR-015
+E2E-004,Fluxo E2E,Liberação por termo,Crítica,E2E,Sim,BR-023
+E2E-005,Fluxo E2E,Bloqueio financeiro,Crítica,E2E,Sim,BR-023
+E2E-006,Fluxo E2E,Garantia dentro do prazo,Alta,E2E,Sim,BR-024
+E2E-007,Fluxo E2E,Múltiplos executores,Alta,E2E,Sim,BR-018
+E2E-008,Fluxo E2E,Cancelamento com estoque,Crítica,E2E,Sim,BR-016
+E2E-009,Fluxo E2E,Dupla submissão,Crítica,E2E,Sim,BR-033
+E2E-010,Fluxo E2E,Permissão ponta a ponta,Crítica,E2E/API,Sim,BR-028
+NFR-001,Não funcional,Transação atômica na conversão,Crítica,Integration,Sim,BR-034
+NFR-002,Não funcional,Transação atômica no estorno,Crítica,Integration,Sim,BR-034
+NFR-003,Não funcional,Resposta a payload inesperado,Alta,API,Sim,BR-040
+NFR-004,Não funcional,IDs inexistentes,Média,API,Sim,BR-040
+NFR-005,Não funcional,Referência cruzada inválida,Alta,API,Sim,BR-002
+NFR-006,Não funcional,Repetibilidade da suíte,Alta,Test Infra,Sim,
+NFR-007,Não funcional,Isolamento entre testes,Alta,Test Infra,Sim,
+NFR-008,Não funcional,Seed determinístico,Média,Test Infra,Sim,
+NFR-009,Não funcional,Logs sem segredo,Alta,Manual/Integration,Parcial,BR-040
+NFR-010,Não funcional,Erro controlado de arquivo,Média,API/E2E,Sim,BR-040
+PEN-001,Decisão pendente,Cobrança de cliente interno,Alta,Manual/API,Não,BR-036
+PEN-002,Decisão pendente,Hora interna,Média,Manual,Não,BR-036
+PEN-003,Decisão pendente,Faixas de prazo por valor,Média,Manual/API,Não,BR-029
+PEN-004,Decisão pendente,Integração de boleto,Baixa,Manual,Não,BR-037
+PEN-005,Decisão pendente,Emissão fiscal,Média,Manual,Não,BR-039
+PEN-006,Decisão pendente,Obrigatoriedade de fotos por serviço,Média,Manual/E2E,Parcial,BR-019
+PEN-007,Decisão pendente,Limite de desconto,Alta,Manual/API,Não,BR-011
+PEN-008,Decisão pendente,Campos obrigatórios do termo de débito,Alta,Manual/E2E,Parcial,BR-023
