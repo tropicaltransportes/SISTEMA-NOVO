@@ -29,6 +29,12 @@ const itensMenu = computed(() => {
       perfis: ['suporte_administrativo', 'administrador_tecnico'],
     },
     {
+      rota: '/estoque/ajustes',
+      label: 'Ajustes de Estoque',
+      icone: 'pi pi-sliders-h',
+      perfis: ['suporte_administrativo', 'administrador_tecnico'],
+    },
+    {
       rota: '/vendas-avulsas',
       label: 'Venda Avulsa',
       icone: 'pi pi-shopping-cart',
