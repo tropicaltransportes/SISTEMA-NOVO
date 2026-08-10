@@ -1,11 +1,12 @@
 <script setup>
 import { computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import Button from 'primevue/button'
 
 const auth = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 
 const itensMenu = computed(() => {
   const perfil = auth.perfil
@@ -79,6 +80,28 @@ const nomePerfil = computed(() => {
   return rotulos[auth.perfil] ?? auth.perfil
 })
 
+const tituloPagina = computed(() => {
+  const rotulos = {
+    dashboard: 'Dashboard',
+    clientes: 'Clientes',
+    'cliente-detalhe': 'Detalhe do Cliente',
+    veiculos: 'Veículos',
+    solicitacoes: 'Solicitações',
+    orcamentos: 'Orçamentos',
+    os: 'Ordens de Serviço',
+    'os-detalhe': 'Detalhe da OS',
+    pecas: 'Peças',
+    'nf-entrada': 'Entrada de NF',
+    'estoque-ajustes': 'Ajustes de Estoque',
+    'vendas-avulsas': 'Venda Avulsa',
+    'financeiro-cobrancas': 'Financeiro',
+    importacao: 'Importação Inicial',
+    'admin-checklist': 'Checklists Técnicos',
+    'admin-faixas-acrescimo': 'Faixas de Acréscimo',
+  }
+  return rotulos[route.name] ?? ''
+})
+
 async function sair() {
   await auth.logout()
   router.push('/login')
@@ -86,108 +109,205 @@ async function sair() {
 </script>
 
 <template>
-  <div class="shell">
-    <aside class="menu-lateral">
-      <div class="marca">ERP Oficina</div>
-      <nav>
-        <router-link
-          v-for="item in itensMenu"
-          :key="item.rota"
-          :to="item.rota"
-          class="item-menu"
-          active-class="item-menu-ativo"
-        >
-          <i :class="item.icone"></i>
-          <span>{{ item.label }}</span>
-        </router-link>
-      </nav>
-    </aside>
-
-    <div class="conteudo">
-      <header class="topo">
-        <div class="usuario-info">
-          <strong>{{ auth.profile?.nome }}</strong>
-          <span class="perfil-badge">{{ nomePerfil }}</span>
+  <div class="page-bg">
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="marca">
+          <div class="marca-logo"><span></span></div>
+          <div class="marca-texto">Tropical Transportes<br /><span class="marca-sub">ERP</span></div>
         </div>
-        <Button label="Sair" icon="pi pi-sign-out" severity="secondary" text @click="sair" />
-      </header>
-      <main class="pagina">
-        <router-view />
-      </main>
+
+        <nav>
+          <router-link
+            v-for="item in itensMenu"
+            :key="item.rota"
+            :to="item.rota"
+            class="item-menu"
+            active-class="item-menu-ativo"
+          >
+            <i :class="item.icone"></i>
+            <span>{{ item.label }}</span>
+          </router-link>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="avatar"></div>
+          <div class="sidebar-footer-texto">
+            <div class="user-nome">{{ auth.profile?.nome }}</div>
+            <div class="user-perfil">{{ nomePerfil }}</div>
+          </div>
+        </div>
+      </aside>
+
+      <div class="main-col">
+        <header class="topbar">
+          <div class="titulo-pagina">{{ tituloPagina }}</div>
+          <Button label="Sair" icon="pi pi-sign-out" severity="secondary" text @click="sair" />
+        </header>
+        <main class="pagina">
+          <router-view />
+        </main>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.shell {
-  display: flex;
+.page-bg {
+  position: relative;
+  width: 100%;
   min-height: 100vh;
+  background: var(--bg-page-gradient), var(--bg-page);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  box-sizing: border-box;
 }
-.menu-lateral {
-  width: 240px;
-  background: #1f2937;
-  color: white;
+
+.shell {
+  position: relative;
+  width: 100%;
+  max-width: 1560px;
+  height: calc(100vh - 56px);
+  border-radius: var(--shell-radius);
+  background: var(--panel-shell-bg);
+  backdrop-filter: var(--shell-blur);
+  -webkit-backdrop-filter: var(--shell-blur);
+  border: 1px solid var(--border-panel);
+  box-shadow: var(--shell-shadow);
+  display: flex;
+  overflow: hidden;
+}
+
+.sidebar {
+  flex-shrink: 0;
+  width: 252px;
   display: flex;
   flex-direction: column;
+  padding: 22px 14px;
+}
+
+.marca {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px 22px;
+}
+.marca-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--accent-gradient);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
-.marca {
-  padding: 1.25rem 1rem;
-  font-weight: 700;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+.marca-logo span {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  background: #fff;
+  display: block;
 }
+.marca-texto {
+  color: var(--text-heading);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: -0.2px;
+  line-height: 1.2;
+}
+.marca-sub {
+  color: var(--accent-text);
+  font-weight: 600;
+  font-size: 11.5px;
+}
+
 nav {
   display: flex;
   flex-direction: column;
-  padding: 0.5rem;
-  gap: 0.25rem;
+  gap: 2px;
+  margin-top: 6px;
+  overflow-y: auto;
 }
 .item-menu {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.6rem 0.75rem;
-  border-radius: 8px;
-  color: #d1d5db;
+  gap: 10px;
+  padding: 8px 11px;
+  border-radius: 9px;
+  color: var(--text-muted-2);
   text-decoration: none;
-  font-size: 0.9rem;
+  font-size: 13px;
+  font-weight: 550;
+}
+.item-menu i {
+  font-size: 14px;
+  color: inherit;
+  flex-shrink: 0;
 }
 .item-menu:hover {
   background: rgba(255, 255, 255, 0.06);
 }
 .item-menu-ativo {
-  background: #374151;
-  color: white;
+  background: var(--accent-soft-bg);
+  color: var(--text-heading);
 }
-.conteudo {
-  flex: 1;
+
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-footer);
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #c4b5fd, #8b5cf6);
+  flex-shrink: 0;
+}
+.sidebar-footer-texto {
   min-width: 0;
 }
-.topo {
+.user-nome {
+  color: var(--text-heading);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.user-perfil {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.main-col {
+  flex: 1;
+  min-width: 0;
   display: flex;
+  flex-direction: column;
+}
+.topbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-  padding: 0.75rem 1.5rem;
-  border-bottom: 1px solid #e5e7eb;
-  background: white;
+  padding: 18px 28px;
 }
-.usuario-info {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-.perfil-badge {
-  font-size: 0.75rem;
-  background: #eef2ff;
-  color: #4338ca;
-  padding: 0.2rem 0.5rem;
-  border-radius: 999px;
+.titulo-pagina {
+  color: var(--text-heading);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
 }
 .pagina {
-  padding: 1.5rem;
   flex: 1;
+  padding: 0 28px 32px;
   overflow: auto;
 }
 </style>
