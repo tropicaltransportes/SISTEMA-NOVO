@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { supabase } from '../../lib/supabaseClient'
 import { useToast } from 'primevue/usetoast'
@@ -21,6 +21,7 @@ const confirm = useConfirm()
 const clientes = ref([])
 const carregando = ref(true)
 const filtro = ref('')
+const filtroTipo = ref('todos')
 const dialogoAberto = ref(false)
 const salvando = ref(false)
 const editando = ref(null)
@@ -30,14 +31,41 @@ const opcoesTipo = [
   { label: 'Interno (frota própria)', value: 'interno' },
 ]
 
+const opcoesFiltroTipo = [
+  { label: 'Todos', value: 'todos' },
+  { label: 'Internos', value: 'interno' },
+  { label: 'Externos', value: 'externo' },
+]
+
 const formVazio = () => ({ id: null, tipo: 'externo', nome: '', documento: '', telefone: '', email: '' })
 const form = ref(formVazio())
+
+const clientesFiltrados = computed(() => {
+  if (filtroTipo.value === 'todos') return clientes.value
+  return clientes.value.filter((c) => c.tipo === filtroTipo.value)
+})
+
+const gradientesAvatar = [
+  'linear-gradient(135deg,#8b5cf6,#6d28d9)',
+  'linear-gradient(135deg,#38bdf8,#0ea5e9)',
+  'linear-gradient(135deg,#4ade80,#16a34a)',
+  'linear-gradient(135deg,#facc15,#d97706)',
+  'linear-gradient(135deg,#f87171,#dc2626)',
+]
+function avatarGradiente(cliente) {
+  const chave = cliente.nome ?? cliente.id ?? ''
+  const hash = [...chave].reduce((s, c) => s + c.charCodeAt(0), 0)
+  return gradientesAvatar[hash % gradientesAvatar.length]
+}
+function contagemVeiculos(cliente) {
+  return cliente.veiculos?.[0]?.count ?? 0
+}
 
 async function carregar() {
   carregando.value = true
   const { data, error } = await supabase
     .from('clientes')
-    .select('id, tipo, nome, documento, telefone, email')
+    .select('id, tipo, nome, documento, telefone, email, veiculos(count)')
     .is('deleted_at', null)
     .order('nome')
   if (error) {
@@ -115,8 +143,19 @@ onMounted(carregar)
 <template>
   <div>
     <div class="cabecalho">
-      <h2>Clientes</h2>
-      <Button label="Novo Cliente" icon="pi pi-plus" @click="abrirNovo" />
+      <div class="pills">
+        <button
+          v-for="opcao in opcoesFiltroTipo"
+          :key="opcao.value"
+          type="button"
+          class="pill"
+          :class="{ 'pill-ativa': filtroTipo === opcao.value }"
+          @click="filtroTipo = opcao.value"
+        >
+          {{ opcao.label }}
+        </button>
+      </div>
+      <Button label="Novo Cliente" icon="pi pi-plus" class="btn-gradiente" @click="abrirNovo" />
     </div>
 
     <IconField class="busca">
@@ -124,41 +163,53 @@ onMounted(carregar)
       <InputText v-model="filtro" placeholder="Buscar por nome ou documento" />
     </IconField>
 
-    <DataTable
-      :value="clientes"
-      :loading="carregando"
-      :filters="{ global: { value: filtro, matchMode: 'contains' } }"
-      :globalFilterFields="['nome', 'documento']"
-      paginator
-      :rows="15"
-      dataKey="id"
-      stripedRows
-      @row-click="(e) => router.push(`/clientes/${e.data.id}`)"
-      style="cursor: pointer"
-    >
-      <Column field="nome" header="Nome" sortable />
-      <Column field="documento" header="Documento" />
-      <Column field="telefone" header="Telefone" />
-      <Column field="email" header="E-mail" />
-      <Column field="tipo" header="Tipo">
-        <template #body="{ data }">
-          <Tag :severity="data.tipo === 'interno' ? 'info' : 'success'" :value="data.tipo" />
-        </template>
-      </Column>
-      <Column header="Ações" style="width: 140px">
-        <template #body="{ data }">
-          <Button icon="pi pi-pencil" text rounded @click.stop="abrirEdicao(data)" />
-          <Button
-            v-if="data.tipo !== 'interno'"
-            icon="pi pi-ban"
-            text
-            rounded
-            severity="danger"
-            @click.stop="confirmarInativacao(data)"
-          />
-        </template>
-      </Column>
-    </DataTable>
+    <div class="panel">
+      <DataTable
+        :value="clientesFiltrados"
+        :loading="carregando"
+        :filters="{ global: { value: filtro, matchMode: 'contains' } }"
+        :globalFilterFields="['nome', 'documento']"
+        paginator
+        :rows="15"
+        dataKey="id"
+        stripedRows
+        @row-click="(e) => router.push(`/clientes/${e.data.id}`)"
+        style="cursor: pointer"
+      >
+        <Column header="Nome" sortable sortField="nome">
+          <template #body="{ data }">
+            <div class="linha-nome">
+              <span class="avatar-cliente" :style="{ background: avatarGradiente(data) }"></span>
+              <span>{{ data.nome }}</span>
+            </div>
+          </template>
+        </Column>
+        <Column field="documento" header="Documento" />
+        <Column field="telefone" header="Telefone" />
+        <Column field="email" header="E-mail" />
+        <Column field="tipo" header="Tipo">
+          <template #body="{ data }">
+            <Tag :severity="data.tipo === 'interno' ? 'info' : 'success'" :value="data.tipo" />
+          </template>
+        </Column>
+        <Column header="Veículos">
+          <template #body="{ data }">{{ contagemVeiculos(data) }}</template>
+        </Column>
+        <Column header="Ações" style="width: 140px">
+          <template #body="{ data }">
+            <Button icon="pi pi-pencil" text rounded @click.stop="abrirEdicao(data)" />
+            <Button
+              v-if="data.tipo !== 'interno'"
+              icon="pi pi-ban"
+              text
+              rounded
+              severity="danger"
+              @click.stop="confirmarInativacao(data)"
+            />
+          </template>
+        </Column>
+      </DataTable>
+    </div>
 
     <Dialog v-model:visible="dialogoAberto" modal :header="editando ? 'Editar Cliente' : 'Novo Cliente'" style="width: 420px">
       <div class="form-campo">
@@ -196,9 +247,49 @@ onMounted(carregar)
   align-items: center;
   margin-bottom: 1rem;
 }
+.pills {
+  display: flex;
+  gap: 8px;
+}
+.pill {
+  padding: 7px 15px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted-2);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+.pill-ativa {
+  color: var(--text-heading);
+  background: var(--accent-soft-bg-strong);
+}
+.btn-gradiente :deep(.p-button) {
+  background: var(--accent-gradient);
+  border: none;
+}
 .busca {
   margin-bottom: 1rem;
   max-width: 320px;
+}
+.panel {
+  background: var(--panel-card-bg);
+  border-radius: var(--card-radius);
+  padding: 6px 4px;
+}
+.linha-nome {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.avatar-cliente {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  display: inline-block;
 }
 .form-campo {
   display: flex;
@@ -208,6 +299,6 @@ onMounted(carregar)
 }
 .form-campo label {
   font-size: 0.8rem;
-  color: #4b5563;
+  color: var(--text-muted);
 }
 </style>

@@ -158,10 +158,10 @@ watch(clienteId, carregar, { immediate: true })
 .secao {
   margin-top: 1.5rem;
   padding-top: 1rem;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--border-header);
 }
 .hint {
-  color: #6b7280;
+  color: var(--text-muted);
   font-size: 0.85rem;
 }
 </style>

@@ -64,7 +64,7 @@ const tempoMedioLiberacaoDias = computed(() => {
 })
 const osPorStatusChart = computed(() => ({
   labels: statusOrdem,
-  datasets: [{ label: 'OS', backgroundColor: '#6366f1', data: statusOrdem.map((s) => ordensServico.value.filter((o) => o.status === s).length) }],
+  datasets: [{ label: 'OS', backgroundColor: 'rgba(139,92,246,0.85)', borderRadius: 6, data: statusOrdem.map((s) => ordensServico.value.filter((o) => o.status === s).length) }],
 }))
 const osAntigasAbertas = computed(() => {
   const hoje = Date.now()
@@ -104,10 +104,32 @@ const recebidoPorMesChart = computed(() => {
       .filter((r) => { const d = new Date(r.data_recebimento); return d >= inicio && d <= fim })
       .reduce((s, r) => s + r.valor_recebido, 0)
   })
-  return { labels, datasets: [{ label: 'Recebido', borderColor: '#16a34a', backgroundColor: '#16a34a33', fill: true, tension: 0.3, data }] }
+  return { labels, datasets: [{ label: 'Recebido', borderColor: '#8b5cf6', backgroundColor: 'rgba(139,92,246,0.15)', fill: true, tension: 0.3, data }] }
 })
 
-const chartOptionsBase = { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+const chartOptionsBase = {
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      backgroundColor: 'rgba(30,34,43,0.95)',
+      titleColor: '#f5f3ff',
+      bodyColor: '#cfc9dd',
+      borderColor: 'rgba(255,255,255,0.09)',
+      borderWidth: 1,
+    },
+  },
+  scales: {
+    x: {
+      ticks: { color: '#776f8c' },
+      grid: { color: 'rgba(255,255,255,0.04)', drawTicks: false },
+    },
+    y: {
+      beginAtZero: true,
+      ticks: { color: '#776f8c' },
+      grid: { color: 'rgba(255,255,255,0.06)' },
+    },
+  },
+}
 
 // ---------- Estoque ----------
 const pecas = ref([])
@@ -211,16 +233,18 @@ onMounted(carregar)
           <h4>OS por status (atual)</h4>
           <Chart type="bar" :data="osPorStatusChart" :options="chartOptionsBase" style="max-height: 280px" />
         </div>
-        <h4>OS abertas há mais de 7 dias</h4>
-        <DataTable :value="osAntigasAbertas" dataKey="id" size="small" paginator :rows="8">
-          <Column header="Veículo"><template #body="{ data }">{{ data.veiculo?.placa }}</template></Column>
-          <Column header="Cliente"><template #body="{ data }">{{ data.cliente?.nome }}</template></Column>
-          <Column header="Status"><template #body="{ data }"><Tag :severity="severidadeStatus[data.status]" :value="data.status" /></template></Column>
-          <Column field="diasAberta" header="Dias em aberto" />
-          <Column header="">
-            <template #body="{ data }"><Button label="Abrir" size="small" text @click="router.push('/os/' + data.id)" /></template>
-          </Column>
-        </DataTable>
+        <div class="panel">
+          <h4>OS abertas há mais de 7 dias</h4>
+          <DataTable :value="osAntigasAbertas" dataKey="id" size="small" paginator :rows="8">
+            <Column header="Veículo"><template #body="{ data }">{{ data.veiculo?.placa }}</template></Column>
+            <Column header="Cliente"><template #body="{ data }">{{ data.cliente?.nome }}</template></Column>
+            <Column header="Status"><template #body="{ data }"><Tag :severity="severidadeStatus[data.status]" :value="data.status" /></template></Column>
+            <Column field="diasAberta" header="Dias em aberto" />
+            <Column header="">
+              <template #body="{ data }"><Button label="Abrir" size="small" text @click="router.push('/os/' + data.id)" /></template>
+            </Column>
+          </DataTable>
+        </div>
       </section>
 
       <section v-if="podeVerFinanceiro" class="secao-dashboard">
@@ -265,12 +289,14 @@ onMounted(carregar)
             <span class="tile-label">Valor total em estoque</span>
           </div>
         </div>
-        <DataTable v-if="pecasRuptura.length + pecasAbaixoMinimo.length > 0" :value="[...pecasRuptura, ...pecasAbaixoMinimo]" dataKey="id" size="small">
-          <Column field="sku" header="SKU" />
-          <Column field="descricao" header="Descrição" />
-          <Column field="saldo_atual" header="Saldo" />
-          <Column field="estoque_minimo" header="Mínimo" />
-        </DataTable>
+        <div class="panel" v-if="pecasRuptura.length + pecasAbaixoMinimo.length > 0">
+          <DataTable :value="[...pecasRuptura, ...pecasAbaixoMinimo]" dataKey="id" size="small">
+            <Column field="sku" header="SKU" />
+            <Column field="descricao" header="Descrição" />
+            <Column field="saldo_atual" header="Saldo" />
+            <Column field="estoque_minimo" header="Mínimo" />
+          </DataTable>
+        </div>
       </section>
     </template>
   </div>
@@ -293,7 +319,7 @@ onMounted(carregar)
 .secao-dashboard {
   margin-bottom: 2rem;
   padding-bottom: 1.5rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border-header);
 }
 .tiles {
   display: flex;
@@ -302,9 +328,8 @@ onMounted(carregar)
   margin: 0.75rem 0 1.25rem;
 }
 .tile {
-  background: white;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  background: var(--panel-card-bg);
+  border-radius: var(--card-radius);
   padding: 1rem 1.25rem;
   min-width: 180px;
   display: flex;
@@ -312,19 +337,28 @@ onMounted(carregar)
   gap: 0.25rem;
 }
 .tile-alerta {
-  border-color: #fca5a5;
-  background: #fef2f2;
+  background: var(--danger-bg);
 }
 .tile-valor {
   font-size: 1.5rem;
   font-weight: 700;
+  color: var(--text-heading);
 }
 .tile-label {
   font-size: 0.8rem;
-  color: #6b7280;
+  color: var(--text-muted);
 }
-.grafico {
+.grafico,
+.panel {
   margin-bottom: 1.5rem;
   max-width: 720px;
+  background: var(--panel-card-bg);
+  border-radius: var(--card-radius);
+  padding: 20px;
+}
+.grafico h4,
+.panel h4 {
+  color: var(--text-heading);
+  margin-top: 0;
 }
 </style>
