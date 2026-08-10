@@ -1,0 +1,60 @@
+=== Bateria 2: todas as demais RPCs, chamadas como anon (sem nenhum login), IDs fake ===
+Objetivo: confirmar se o padrão 'if current_perfil() not in (...) then raise exception' e ignorado quando current_perfil() retorna NULL (chamador anonimo).
+Se a mensagem de erro for 'Perfil sem permissao...' = check funcionou (seguro).
+Se a mensagem for de negocio (ex: 'nao encontrado(a)') = o check de permissao foi pulado (FALHA CRITICA DE SEGURANCA).
+
+--- rpc_enviar_orcamento (RPC: rpc_enviar_orcamento) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Orçamento não encontrado"}
+--- rpc_registrar_autorizacao_orcamento (RPC: rpc_registrar_autorizacao_orcamento) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Orçamento não encontrado"}
+--- rpc_aprovar_orcamento (RPC: rpc_aprovar_orcamento) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Orçamento não encontrado"}
+--- rpc_rejeitar_orcamento (RPC: rpc_rejeitar_orcamento) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Orçamento não encontrado"}
+--- rpc_criar_versao_orcamento (RPC: rpc_criar_versao_orcamento) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Orçamento não encontrado"}
+--- rpc_registrar_acrescimo (RPC: rpc_registrar_acrescimo) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Orçamento não encontrado"}
+--- rpc_transicionar_os (RPC: rpc_transicionar_os) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Ordem de serviço não encontrada"}
+--- rpc_concluir_os (RPC: rpc_concluir_os) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Ordem de serviço não encontrada"}
+--- rpc_criar_os_garantia (RPC: rpc_criar_os_garantia) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Ordem de serviço não encontrada"}
+--- rpc_definir_checklist_os (RPC: rpc_definir_checklist_os) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Ordem de serviço não encontrada"}
+--- rpc_baixar_peca_os (RPC: rpc_baixar_peca_os) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Ordem de serviço não encontrada"}
+--- rpc_criar_cobranca (arrays vazios, evita insercao) (RPC: rpc_criar_cobranca) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Selecione ao menos uma OS ou venda avulsa para gerar a cobrança"}
+--- rpc_parcelar_cobranca (RPC: rpc_parcelar_cobranca) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Cobrança não encontrada"}
+--- rpc_registrar_termo_ciencia (RPC: rpc_registrar_termo_ciencia) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Cobrança não encontrada"}
+--- rpc_cancelar_cobranca (RPC: rpc_cancelar_cobranca) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Cobrança não encontrada"}
+--- rpc_confirmar_nf_entrada (RPC: rpc_confirmar_nf_entrada) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Nota fiscal não encontrada"}
+--- rpc_estornar_nf_entrada (RPC: rpc_estornar_nf_entrada) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Nota fiscal não encontrada"}
+--- rpc_criar_venda_avulsa (itens vazio, evita insercao) (RPC: rpc_criar_venda_avulsa) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Venda avulsa precisa de ao menos um item"}
+=== FIM BATERIA 2 ===

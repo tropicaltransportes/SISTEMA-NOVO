@@ -1,0 +1,9 @@
+=== Bateria 3: login com credenciais falsas via GoTrue (100% seguro, nao precisa de conta real) ===
+
+--- AUT-002/003: senha invalida / usuario inexistente (mesmo e-mail, nunca existiu) ---
+HTTP 400
+{"code":400,"error_code":"invalid_credentials","msg":"Invalid login credentials"}
+--- AUT-002 variante: e-mail com formato valido mas obviamente nao cadastrado, senha errada ---
+HTTP 400
+{"code":400,"error_code":"invalid_credentials","msg":"Invalid login credentials"}
+=== FIM BATERIA 3 ===

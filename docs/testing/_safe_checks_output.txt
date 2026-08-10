@@ -1,0 +1,38 @@
+=== Safe non-mutating checks, anon role only, 2026-08-10T19:13:50Z ===
+
+--- 1) SELECT profiles como anon (esperado: [] vazio, RLS bloqueia) ---
+HTTP 200
+[]
+--- 2) SELECT cobrancas (financeiro) como anon (esperado: [] vazio) ---
+HTTP 200
+[]
+--- 3) SELECT ordens_servico como anon (esperado: [] vazio) ---
+HTTP 200
+[]
+--- 4) RPC rpc_criar_os como anon com ID fake (esperado: erro de permissao, sem criacao) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Veículo não encontrado"}
+--- 5) RPC rpc_liberar_os como anon com ID fake (esperado: erro de permissao) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Ordem de serviço não encontrada"}
+--- 6) RPC rpc_registrar_recebimento como anon (esperado: erro de permissao) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Parcela não encontrada"}
+--- 7) [SEGURANCA] RPC rpc_registrar_saida_estoque como anon, peca_id FAKE (nao existe) ---
+    Esperado seguro: 'permission denied for function' (revoke funcionou)
+    Achado critico se: 'Peca ... nao encontrada' (RPC executou = revoke NAO bloqueou authenticated/anon)
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Peça 00000000-0000-0000-0000-000000000000 não encontrada"}
+--- 8) [SEGURANCA] RPC rpc_registrar_entrada_estoque como anon, peca_id FAKE ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Peça 00000000-0000-0000-0000-000000000000 não encontrada"}
+--- 9) marcar_solicitacao_convertida como anon, ID fake (seguro: WHERE nao casa nenhuma linha real) ---
+HTTP 204
+
+--- 10) Storage: GET objeto no bucket privado 'comprovantes' sem auth (esperado: negado) ---
+HTTP 400
+{"statusCode":"404","error":"Bucket not found","message":"Bucket not found","code":"NoSuchBucket"}
+--- 11) RPC protegida com Bearer JWT invalido (esperado: 401) ---
+HTTP 401
+{"code":"PGRST301","details":null,"hint":null,"message":"JWT cryptographic operation failed"}
+=== FIM ===
