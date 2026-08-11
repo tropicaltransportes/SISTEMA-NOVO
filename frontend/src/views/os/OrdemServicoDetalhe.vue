@@ -45,6 +45,9 @@ const garantiaItensVinculados = ref([])
 // ETAPA 5 (P1-B) — ADC-001..008: adicionais da OS (necessidade identificada
 // durante a execução, precificada pelo encarregado, aprovada por item).
 const osAdicionais = ref([])
+// ETAPA 6 (P1-C) — item 2/3: fotos da OS.
+const osFotos = ref([])
+const checklistTemplateAtual = ref(null)
 
 const severidadeStatus = {
   aberta: 'info', em_diagnostico: 'warn', aguardando_aprovacao: 'warn', em_execucao: 'warn',
@@ -70,6 +73,10 @@ const podeIdentificarAdicional = computed(() => ['executor', 'encarregado', 'adm
 const podePrecificarAdicional = computed(() => ['encarregado', 'administrador_tecnico'].includes(auth.perfil))
 const podeDecidirAdicional = computed(() => ['encarregado', 'suporte_administrativo', 'administrador_tecnico'].includes(auth.perfil))
 const podeCancelarAdicional = computed(() => ['encarregado', 'administrador_tecnico'].includes(auth.perfil))
+// ETAPA 6 (P1-C) — item 12 (RBAC)
+const podeDefinirPrazo = computed(() => ['encarregado', 'administrador_tecnico'].includes(auth.perfil))
+const podeRemoverExecutor = computed(() => ['encarregado', 'administrador_tecnico'].includes(auth.perfil))
+const podeAnexarFoto = computed(() => ['executor', 'encarregado', 'suporte_administrativo', 'administrador_tecnico'].includes(auth.perfil))
 
 const NOVENTA_DIAS_MS = 90 * 24 * 60 * 60 * 1000
 const prazoGarantiaAte = computed(() => {
@@ -86,10 +93,10 @@ async function carregar() {
   const [respOs, respExec, respMov, respPecas, respTemplates] = await Promise.all([
     supabase
       .from('ordens_servico')
-      .select('id, tipo, status, data_abertura, data_liberacao, checklist_template_id, orcamento_id, os_origem_id, veiculo:veiculos(id, placa, prefixo, modelo), cliente:clientes(id, nome, tipo)')
+      .select('id, tipo, status, data_abertura, data_liberacao, checklist_template_id, orcamento_id, os_origem_id, previsao_conclusao, previsao_definida_por, previsao_definida_em, custo_pecas, custo_mao_obra, custo_total, custo_hora_aplicado, horas_apontadas_total, custo_calculado_em, centro_custo_id, veiculo:veiculos(id, placa, prefixo, modelo), cliente:clientes(id, nome, tipo)')
       .eq('id', osId.value)
       .single(),
-    supabase.from('os_executores').select('id, usuario_id, etapa, inicio, fim, observacao, usuario:profiles(nome)').eq('os_id', osId.value).order('inicio', { ascending: false }),
+    supabase.from('os_executores').select('id, usuario_id, etapa, inicio, fim, observacao, ativo, removido_por, removido_em, motivo_remocao, usuario:profiles(nome)').eq('os_id', osId.value).order('inicio', { ascending: false }),
     supabase.from('estoque_movimentos').select('id, quantidade, custo_unitario, criado_em, orcamento_item_id, os_adicional_item_id, tipo, peca:pecas(sku, descricao)').eq('origem_tipo', 'os').eq('origem_id', osId.value).order('criado_em', { ascending: false }),
     supabase.from('pecas').select('id, sku, descricao, saldo_atual').is('deleted_at', null).order('descricao'),
     supabase.from('checklist_templates').select('id, nome').eq('ativo', true).order('nome'),
@@ -105,6 +112,24 @@ async function carregar() {
   movimentos.value = respMov.data ?? []
   pecas.value = respPecas.data ?? []
   checklistTemplates.value = respTemplates.data ?? []
+
+  // ETAPA 6 (P1-C) — item 2/3: fotos da OS + obrigatoriedade do checklist atual.
+  const { data: respFotos } = await supabase
+    .from('os_fotos')
+    .select('id, tipo, arquivo_path, enviado_por, enviado_em, observacao, enviado_por_profile:profiles(nome)')
+    .eq('os_id', osId.value)
+    .order('enviado_em', { ascending: false })
+  osFotos.value = respFotos ?? []
+  if (os.value.checklist_template_id) {
+    const { data: respTplAtual } = await supabase
+      .from('checklist_templates')
+      .select('id, nome, foto_antes_obrigatoria, foto_depois_obrigatoria')
+      .eq('id', os.value.checklist_template_id)
+      .single()
+    checklistTemplateAtual.value = respTplAtual ?? null
+  } else {
+    checklistTemplateAtual.value = null
+  }
 
   const [respOsOrigem, respOsGarantias] = await Promise.all([
     os.value.os_origem_id
@@ -228,6 +253,71 @@ async function liberar() {
   await carregar()
 }
 
+// ---------- Prazo (ETAPA 6/P1-C — Decisão 3, PEN-003) ----------
+const dialogoPrazoAberto = ref(false)
+const formPrazo = ref({ previsao_conclusao: null, motivo: '' })
+function abrirPrazo() {
+  formPrazo.value = { previsao_conclusao: os.value.previsao_conclusao ? new Date(os.value.previsao_conclusao) : null, motivo: '' }
+  dialogoPrazoAberto.value = true
+}
+async function salvarPrazo() {
+  if (!formPrazo.value.previsao_conclusao) {
+    toast.add({ severity: 'warn', summary: 'Selecione a data/hora prevista', life: 4000 })
+    return
+  }
+  if (os.value.previsao_conclusao && (!formPrazo.value.motivo || formPrazo.value.motivo.trim().length < 5)) {
+    toast.add({ severity: 'warn', summary: 'Alterar um prazo já definido exige motivo (mín. 5 caracteres)', life: 5000 })
+    return
+  }
+  const { error } = await supabase.rpc('rpc_definir_previsao_conclusao', {
+    p_os_id: osId.value,
+    p_previsao_conclusao: new Date(formPrazo.value.previsao_conclusao).toISOString(),
+    p_motivo: formPrazo.value.motivo || null,
+  })
+  if (error) {
+    toast.add({ severity: 'error', summary: 'Erro ao definir prazo', detail: error.message, life: 6000 })
+    return
+  }
+  toast.add({ severity: 'success', summary: 'Prazo definido', life: 3000 })
+  dialogoPrazoAberto.value = false
+  await carregar()
+}
+
+// ---------- Fotos (ETAPA 6/P1-C — item 2/3, Decisão 6) ----------
+const formFoto = ref({ tipo: 'antes', arquivo: null, observacao: '' })
+const enviandoFoto = ref(false)
+function onArquivoFotoSelecionado(event) {
+  formFoto.value.arquivo = event.target.files[0] || null
+}
+async function enviarFoto() {
+  if (!formFoto.value.arquivo) {
+    toast.add({ severity: 'warn', summary: 'Selecione o arquivo da foto', life: 4000 })
+    return
+  }
+  enviandoFoto.value = true
+  const caminhoDestino = `${osId.value}/${formFoto.value.tipo}/${Date.now()}-${formFoto.value.arquivo.name}`
+  const { error: erroUpload } = await supabase.storage.from('os-fotos').upload(caminhoDestino, formFoto.value.arquivo)
+  if (erroUpload) {
+    enviandoFoto.value = false
+    toast.add({ severity: 'error', summary: 'Erro ao enviar foto', detail: erroUpload.message, life: 6000 })
+    return
+  }
+  const { error } = await supabase.rpc('rpc_registrar_foto_os', {
+    p_os_id: osId.value,
+    p_tipo: formFoto.value.tipo,
+    p_arquivo_path: caminhoDestino,
+    p_observacao: formFoto.value.observacao || null,
+  })
+  enviandoFoto.value = false
+  if (error) {
+    toast.add({ severity: 'error', summary: 'Foto recusada', detail: error.message, life: 7000 })
+    return
+  }
+  toast.add({ severity: 'success', summary: 'Foto registrada', life: 3000 })
+  formFoto.value = { tipo: 'antes', arquivo: null, observacao: '' }
+  await carregar()
+}
+
 // ETAPA 4 (P1-A) — item G (GAR-005): abrir garantia agora exige escolher
 // quais itens da OS original são objeto do retorno — não é mais possível
 // abrir uma garantia "em branco" e depois lançar qualquer coisa nela.
@@ -315,6 +405,33 @@ async function encerrarApontamento(exec) {
     toast.add({ severity: 'error', summary: 'Erro ao encerrar apontamento', detail: error.message, life: 5000 })
     return
   }
+  await carregar()
+}
+
+// ---------- Remoção formal de executor (ETAPA 6/P1-C — item 8, EXE-003) ----------
+const dialogoRemoverExecutorAberto = ref(false)
+const executorParaRemover = ref(null)
+const motivoRemocaoExecutor = ref('')
+function abrirRemoverExecutor(exec) {
+  executorParaRemover.value = exec
+  motivoRemocaoExecutor.value = ''
+  dialogoRemoverExecutorAberto.value = true
+}
+async function confirmarRemoverExecutor() {
+  if (!motivoRemocaoExecutor.value || motivoRemocaoExecutor.value.trim().length < 5) {
+    toast.add({ severity: 'warn', summary: 'Informe o motivo (mín. 5 caracteres)', life: 4000 })
+    return
+  }
+  const { error } = await supabase.rpc('rpc_remover_executor_os', {
+    p_os_executor_id: executorParaRemover.value.id,
+    p_motivo: motivoRemocaoExecutor.value,
+  })
+  if (error) {
+    toast.add({ severity: 'error', summary: 'Erro ao remover executor', detail: error.message, life: 6000 })
+    return
+  }
+  toast.add({ severity: 'success', summary: 'Participação encerrada (histórico preservado)', life: 3000 })
+  dialogoRemoverExecutorAberto.value = false
   await carregar()
 }
 
@@ -650,6 +767,19 @@ watch(osId, carregar, { immediate: true })
 
     <p><strong>Cliente:</strong> {{ os.cliente?.nome }} &nbsp;|&nbsp; <strong>Tipo:</strong> {{ os.tipo }} &nbsp;|&nbsp; <strong>Aberta em:</strong> {{ new Date(os.data_abertura).toLocaleString('pt-BR') }}</p>
     <p v-if="os.data_liberacao"><strong>Liberada em:</strong> {{ new Date(os.data_liberacao).toLocaleString('pt-BR') }}</p>
+    <!-- ETAPA 6 (P1-C) — Decisão 3 (PEN-003): prazo manual, auditado -->
+    <p>
+      <strong>Previsão de conclusão:</strong>
+      <span v-if="os.previsao_conclusao">{{ new Date(os.previsao_conclusao).toLocaleString('pt-BR') }}</span>
+      <span v-else class="hint">não definida</span>
+      <Button v-if="podeDefinirPrazo && !osEncerrada" label="Definir/Alterar" size="small" text @click="abrirPrazo" />
+    </p>
+    <!-- ETAPA 6 (P1-C) — Decisão 1/2 (item 10): custo interno de OS interna -->
+    <p v-if="os.tipo === 'interna' && os.custo_calculado_em">
+      <strong>Custo interno:</strong> peças {{ formatarMoeda(os.custo_pecas) }} + mão de obra {{ formatarMoeda(os.custo_mao_obra) }}
+      ({{ os.horas_apontadas_total }}h × {{ formatarMoeda(os.custo_hora_aplicado) }}) = <strong>{{ formatarMoeda(os.custo_total) }}</strong>
+      — sem cobrança (cliente interno).
+    </p>
 
     <p v-if="osOrigem" class="hint">
       Esta OS é garantia da
@@ -691,6 +821,23 @@ watch(osId, carregar, { immediate: true })
         severity="warn"
         @click="confirmarAbrirGarantia"
       />
+      <!-- ETAPA 6 (P1-C) — item 4/5 -->
+      <Button
+        v-if="['concluida', 'liberada'].includes(os.status)"
+        label="Relatório de Encerramento"
+        size="small"
+        icon="pi pi-file"
+        text
+        @click="router.push('/os/' + osId + '/relatorio-encerramento')"
+      />
+      <Button
+        v-if="os.os_origem_id"
+        label="Relatório de Garantia"
+        size="small"
+        icon="pi pi-shield"
+        text
+        @click="router.push('/os/' + osId + '/relatorio-garantia')"
+      />
     </div>
 
     <div class="secao">
@@ -721,7 +868,12 @@ watch(osId, carregar, { immediate: true })
         <Button label="Iniciar" size="small" @click="iniciarApontamento" />
       </div>
       <DataTable :value="executores" dataKey="id" size="small">
-        <Column header="Executor"><template #body="{ data }">{{ data.usuario?.nome }}</template></Column>
+        <Column header="Executor">
+          <template #body="{ data }">
+            {{ data.usuario?.nome }}
+            <Tag v-if="data.ativo === false" severity="danger" value="removido" style="margin-left:0.3rem;font-size:0.65rem" />
+          </template>
+        </Column>
         <Column field="etapa" header="Etapa" />
         <Column header="Início"><template #body="{ data }">{{ new Date(data.inicio).toLocaleString('pt-BR') }}</template></Column>
         <Column header="Fim">
@@ -732,6 +884,12 @@ watch(osId, carregar, { immediate: true })
           </template>
         </Column>
         <Column field="observacao" header="Observação" />
+        <!-- ETAPA 6 (P1-C) — item 8 (EXE-003): encerrar participação, nunca apagar histórico -->
+        <Column header="">
+          <template #body="{ data }">
+            <Button v-if="podeRemoverExecutor && data.ativo !== false && !osEncerrada" label="Remover" size="small" text severity="danger" @click="abrirRemoverExecutor(data)" />
+          </template>
+        </Column>
       </DataTable>
       <p v-if="osEncerrada" class="hint">OS encerrada — apontamentos não são mais editáveis diretamente (correção formal auditada disponível ao encarregado/admin técnico).</p>
     </div>
@@ -800,6 +958,30 @@ watch(osId, carregar, { immediate: true })
       </DataTable>
     </div>
 
+    <!-- ETAPA 6 (P1-C) — item 2/3 (EXE-005/006/007, Decisão 6): fotos -->
+    <div class="secao">
+      <h3>Fotos</h3>
+      <p v-if="checklistTemplateAtual" class="hint">
+        Este tipo de serviço exige:
+        <Tag :severity="checklistTemplateAtual.foto_antes_obrigatoria ? 'danger' : 'secondary'" :value="checklistTemplateAtual.foto_antes_obrigatoria ? 'foto antes obrigatória' : 'foto antes opcional'" style="margin-right:0.3rem" />
+        <Tag :severity="checklistTemplateAtual.foto_depois_obrigatoria ? 'danger' : 'secondary'" :value="checklistTemplateAtual.foto_depois_obrigatoria ? 'foto depois obrigatória' : 'foto depois opcional'" />
+      </p>
+      <div class="form-linha" v-if="podeAnexarFoto && !osEncerrada">
+        <Select v-model="formFoto.tipo" :options="[{ label: 'Antes', value: 'antes' }, { label: 'Depois', value: 'depois' }, { label: 'Outro', value: 'outro' }]" optionLabel="label" optionValue="value" />
+        <input type="file" accept="image/jpeg,image/png,image/webp" @change="onArquivoFotoSelecionado" />
+        <InputText v-model="formFoto.observacao" placeholder="Observação (opcional)" />
+        <Button label="Enviar" size="small" :loading="enviandoFoto" @click="enviarFoto" />
+      </div>
+      <ul class="checklist">
+        <li v-for="f in osFotos" :key="f.id">
+          <Tag :severity="f.tipo === 'antes' ? 'info' : f.tipo === 'depois' ? 'success' : 'secondary'" :value="f.tipo" />
+          <span>{{ f.arquivo_path.split('/').pop() }}</span>
+          <span class="hint">por {{ f.enviado_por_profile?.nome }} em {{ new Date(f.enviado_em).toLocaleString('pt-BR') }}</span>
+        </li>
+      </ul>
+      <p v-if="osFotos.length === 0" class="hint">Nenhuma foto anexada ainda.</p>
+    </div>
+
     <!-- ETAPA 5 (P1-B) — ADC-001..008: área ADICIONAIS -->
     <div class="secao">
       <div class="cabecalho-secao">
@@ -864,6 +1046,32 @@ watch(osId, carregar, { immediate: true })
       <template #footer>
         <Button label="Cancelar" text @click="dialogoGarantiaAberto = false" />
         <Button label="Abrir Garantia" :disabled="itensGarantiaSelecionados.length === 0" @click="abrirGarantiaComItens(itensGarantiaSelecionados)" />
+      </template>
+    </Dialog>
+
+    <!-- ETAPA 6 (P1-C) — Decisão 3 (PEN-003): prazo manual -->
+    <Dialog v-model:visible="dialogoPrazoAberto" modal header="Definir Prazo (Previsão de Conclusão)" style="width: 420px">
+      <div class="form-campo">
+        <label>Data/hora prevista</label>
+        <input type="datetime-local" v-model="formPrazo.previsao_conclusao" style="padding:0.4rem" />
+      </div>
+      <div class="form-campo" v-if="os.previsao_conclusao">
+        <label>Motivo da alteração (obrigatório — já existia um prazo)</label>
+        <Textarea v-model="formPrazo.motivo" rows="2" autoResize placeholder="Mínimo 5 caracteres" />
+      </div>
+      <template #footer>
+        <Button label="Cancelar" text @click="dialogoPrazoAberto = false" />
+        <Button label="Salvar" @click="salvarPrazo" />
+      </template>
+    </Dialog>
+
+    <!-- ETAPA 6 (P1-C) — item 8 (EXE-003): remoção formal de executor -->
+    <Dialog v-model:visible="dialogoRemoverExecutorAberto" modal header="Encerrar Participação do Executor" style="width: 420px">
+      <p class="hint">Isto encerra a participação futura do executor nesta OS. O histórico de apontamento já registrado NUNCA é apagado.</p>
+      <Textarea v-model="motivoRemocaoExecutor" rows="3" autoResize placeholder="Motivo (mínimo 5 caracteres)" style="width:100%" />
+      <template #footer>
+        <Button label="Voltar" text @click="dialogoRemoverExecutorAberto = false" />
+        <Button label="Confirmar" severity="danger" @click="confirmarRemoverExecutor" />
       </template>
     </Dialog>
 
