@@ -349,6 +349,54 @@ async function salvarAcrescimo() {
   await carregar()
 }
 
+// ---------- Desconto (ETAPA 6/P1-C — Decisão 7: ORC-007/008/FIN-003/PEN-007) ----------
+// Só em rascunho — depois de enviado/decidido, exige nova versão (o backend
+// bloqueia explicitamente; a UI só espelha essa janela).
+const dialogoDescontoAberto = ref(false)
+const salvandoDesconto = ref(false)
+const formDesconto = ref({ modo: 'percentual', percentual: null, valor: null, motivo: '' })
+
+function abrirDesconto(orc) {
+  orcamentoAtual.value = orc
+  formDesconto.value = { modo: 'percentual', percentual: null, valor: null, motivo: '' }
+  dialogoDescontoAberto.value = true
+}
+
+function irParaPdf(orc) {
+  router.push('/orcamentos/' + orc.id + '/pdf')
+}
+
+async function salvarDesconto() {
+  const f = formDesconto.value
+  if (f.modo === 'percentual' && (f.percentual === null || f.percentual === undefined)) {
+    toast.add({ severity: 'warn', summary: 'Informe o percentual de desconto', life: 4000 })
+    return
+  }
+  if (f.modo === 'valor' && (f.valor === null || f.valor === undefined)) {
+    toast.add({ severity: 'warn', summary: 'Informe o valor de desconto', life: 4000 })
+    return
+  }
+  if (!f.motivo || f.motivo.trim().length < 5) {
+    toast.add({ severity: 'warn', summary: 'Motivo do desconto é obrigatório (mín. 5 caracteres)', life: 5000 })
+    return
+  }
+  salvandoDesconto.value = true
+  const { error } = await supabase.rpc('rpc_aplicar_desconto_orcamento', {
+    p_orcamento_id: orcamentoAtual.value.id,
+    p_percentual: f.modo === 'percentual' ? f.percentual : null,
+    p_valor: f.modo === 'valor' ? f.valor : null,
+    p_motivo: f.motivo,
+  })
+  salvandoDesconto.value = false
+  if (error) {
+    toast.add({ severity: 'error', summary: 'Desconto recusado', detail: error.message, life: 8000 })
+    return
+  }
+  toast.add({ severity: 'success', summary: 'Desconto aplicado', life: 3000 })
+  dialogoDescontoAberto.value = false
+  await carregar()
+}
+
 // ---------- Decisão por item (ETAPA 5/P1-B — APR-002/004/005/006) ----------
 // Aprovação deixou de ser tudo-ou-nada: cada item tem sua própria decisão
 // (pendente/aprovado/rejeitado), com meio de aprovação estruturado
@@ -470,8 +518,10 @@ onMounted(() => {
         <template #body="{ data }">
           <template v-if="data.status === 'rascunho' && podeGerir()">
             <Button icon="pi pi-list" label="Itens" size="small" text @click="abrirItens(data)" />
+            <Button icon="pi pi-percentage" label="Desconto" size="small" text @click="abrirDesconto(data)" />
             <Button icon="pi pi-send" label="Enviar" size="small" @click="enviar(data)" />
           </template>
+          <Button icon="pi pi-file-pdf" label="PDF" size="small" text @click="irParaPdf(data)" />
           <template v-if="data.status === 'enviado'">
             <Button v-if="podeAutorizar()" label="Autorização" size="small" text @click="abrirAutorizacao(data)" />
             <!-- ETAPA 5 (P1-B) — APR-002: decisão por item substitui o antigo aprovar/rejeitar tudo-ou-nada como fluxo principal. -->
@@ -624,6 +674,31 @@ onMounted(() => {
       <template #footer>
         <Button label="Cancelar" text @click="dialogoAcrescimoAberto = false" />
         <Button label="Registrar" :loading="salvandoAcrescimo" @click="salvarAcrescimo" />
+      </template>
+    </Dialog>
+
+    <!-- Desconto (ETAPA 6/P1-C — Decisão 7) -->
+    <Dialog v-model:visible="dialogoDescontoAberto" modal header="Aplicar Desconto" style="width: 420px">
+      <div class="form-campo">
+        <label>Modo</label>
+        <Select v-model="formDesconto.modo" :options="[{ label: 'Percentual', value: 'percentual' }, { label: 'Valor fixo (R$)', value: 'valor' }]" optionLabel="label" optionValue="value" />
+      </div>
+      <div class="form-campo" v-if="formDesconto.modo === 'percentual'">
+        <label>Percentual (%)</label>
+        <InputNumber v-model="formDesconto.percentual" suffix="%" :minFractionDigits="0" :maxFractionDigits="2" />
+      </div>
+      <div class="form-campo" v-else>
+        <label>Valor do desconto</label>
+        <InputNumber v-model="formDesconto.valor" mode="currency" currency="BRL" locale="pt-BR" />
+      </div>
+      <div class="form-campo">
+        <label>Motivo (obrigatório)</label>
+        <Textarea v-model="formDesconto.motivo" rows="3" autoResize placeholder="Mínimo 5 caracteres" />
+      </div>
+      <p class="hint">Bloqueado acima do teto configurado pelo administrador técnico; nunca reduz o valor final abaixo de zero. Se o orçamento já foi enviado/aprovado, use Nova Versão antes de alterar o desconto.</p>
+      <template #footer>
+        <Button label="Cancelar" text @click="dialogoDescontoAberto = false" />
+        <Button label="Aplicar" :loading="salvandoDesconto" @click="salvarDesconto" />
       </template>
     </Dialog>
   </div>

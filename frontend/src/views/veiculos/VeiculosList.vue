@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { supabase } from '../../lib/supabaseClient'
 import { useToast } from 'primevue/usetoast'
 import { useConfirm } from 'primevue/useconfirm'
@@ -15,6 +16,7 @@ import InputIcon from 'primevue/inputicon'
 
 const toast = useToast()
 const confirm = useConfirm()
+const router = useRouter()
 
 const veiculos = ref([])
 const clientes = ref([])
@@ -147,8 +149,10 @@ onMounted(carregar)
       <Column header="Proprietário">
         <template #body="{ data }">{{ data.cliente?.nome }}</template>
       </Column>
-      <Column header="Ações" style="width: 100px">
+      <Column header="Ações" style="width: 140px">
         <template #body="{ data }">
+          <!-- ETAPA 6 (P1-C) — item 7 (CAD-012) -->
+          <Button icon="pi pi-history" text rounded title="Histórico" @click="router.push('/veiculos/' + data.id + '/historico')" />
           <Button icon="pi pi-pencil" text rounded @click="abrirEdicao(data)" />
           <Button icon="pi pi-ban" text rounded severity="danger" @click="confirmarInativacao(data)" />
         </template>

@@ -15,6 +15,7 @@ import DatePicker from 'primevue/datepicker'
 import Select from 'primevue/select'
 import Checkbox from 'primevue/checkbox'
 import Tag from 'primevue/tag'
+import Textarea from 'primevue/textarea'
 
 const route = useRoute()
 const router = useRouter()
@@ -301,13 +302,18 @@ async function salvarRecebimento() {
 }
 
 // ---------- Termo de ciência ----------
+// ETAPA 6 (P1-C) — Decisão 8 (PEN-008): registro estruturado — o
+// responsável do cliente (nome, documento quando disponível) passa a ser
+// exigido pela RPC (rpc_registrar_termo_ciencia), além do arquivo assinado.
 const dialogoTermoAberto = ref(false)
 const salvandoTermo = ref(false)
 const arquivoTermo = ref(null)
+const formTermo = ref({ responsavel_nome: '', responsavel_documento: '', observacao: '' })
 
 function abrirTermo(cobranca) {
   cobrancaAtual.value = cobranca
   arquivoTermo.value = null
+  formTermo.value = { responsavel_nome: '', responsavel_documento: '', observacao: '' }
   dialogoTermoAberto.value = true
 }
 function onArquivoTermoSelecionado(event) {
@@ -318,6 +324,10 @@ async function salvarTermo() {
     toast.add({ severity: 'warn', summary: 'Selecione o arquivo do termo', life: 4000 })
     return
   }
+  if (!formTermo.value.responsavel_nome || formTermo.value.responsavel_nome.trim().length < 2) {
+    toast.add({ severity: 'warn', summary: 'Informe o nome do responsável pelo cliente', life: 4000 })
+    return
+  }
   salvandoTermo.value = true
   const caminhoDestino = `termo-${cobrancaAtual.value.id}/${Date.now()}-${arquivoTermo.value.name}`
   const { error: erroUpload } = await supabase.storage.from('comprovantes').upload(caminhoDestino, arquivoTermo.value)
@@ -326,7 +336,13 @@ async function salvarTermo() {
     toast.add({ severity: 'error', summary: 'Erro ao enviar arquivo', detail: erroUpload.message, life: 6000 })
     return
   }
-  const { error } = await supabase.rpc('rpc_registrar_termo_ciencia', { p_cobranca_id: cobrancaAtual.value.id, p_arquivo_path: caminhoDestino })
+  const { error } = await supabase.rpc('rpc_registrar_termo_ciencia', {
+    p_cobranca_id: cobrancaAtual.value.id,
+    p_arquivo_path: caminhoDestino,
+    p_responsavel_nome: formTermo.value.responsavel_nome,
+    p_responsavel_documento: formTermo.value.responsavel_documento || null,
+    p_observacao: formTermo.value.observacao || null,
+  })
   salvandoTermo.value = false
   if (error) {
     toast.add({ severity: 'error', summary: 'Erro ao registrar termo', detail: error.message, life: 6000 })
@@ -520,12 +536,25 @@ onMounted(() => {
       </template>
     </Dialog>
 
-    <!-- Termo de ciência -->
-    <Dialog v-model:visible="dialogoTermoAberto" modal header="Termo de Ciência de Débito" style="width: 420px">
+    <!-- Termo de ciência (ETAPA 6/P1-C — Decisão 8: registro estruturado) -->
+    <Dialog v-model:visible="dialogoTermoAberto" modal header="Termo de Ciência de Débito" style="width: 460px">
+      <div class="form-campo">
+        <label>Nome do responsável pelo cliente</label>
+        <InputText v-model="formTermo.responsavel_nome" placeholder="Nome de quem assinou o termo" />
+      </div>
+      <div class="form-campo">
+        <label>Documento do responsável (opcional)</label>
+        <InputText v-model="formTermo.responsavel_documento" placeholder="CPF/RG, quando informado" />
+      </div>
+      <div class="form-campo">
+        <label>Observação (opcional)</label>
+        <Textarea v-model="formTermo.observacao" rows="2" autoResize style="width:100%" />
+      </div>
       <div class="form-campo">
         <label>Arquivo assinado (foto/PDF)</label>
         <input type="file" @change="onArquivoTermoSelecionado" accept="image/*,application/pdf" />
       </div>
+      <p class="hint">Valor reconhecido: {{ formatarMoeda(cobrancaAtual?.valor_total) }}</p>
       <template #footer>
         <Button label="Cancelar" text @click="dialogoTermoAberto = false" />
         <Button label="Salvar" :loading="salvandoTermo" @click="salvarTermo" />

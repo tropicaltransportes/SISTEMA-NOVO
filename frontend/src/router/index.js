@@ -30,6 +30,12 @@ const routes = [
         component: () => import('../views/veiculos/VeiculosList.vue'),
       },
       {
+        // ETAPA 6 (P1-C) — item 7 (CAD-012): histórico do veículo.
+        path: 'veiculos/:id/historico',
+        name: 'veiculo-historico',
+        component: () => import('../views/veiculos/VeiculoHistorico.vue'),
+      },
+      {
         path: 'estoque/pecas',
         name: 'pecas',
         component: () => import('../views/estoque/PecasList.vue'),
@@ -63,6 +69,12 @@ const routes = [
         component: () => import('../views/orcamentos/OrcamentosList.vue'),
       },
       {
+        // ETAPA 6 (P1-C) — item 1 (ORC-013/DOC-001/DOC-002): PDF de orçamento.
+        path: 'orcamentos/:id/pdf',
+        name: 'orcamento-pdf',
+        component: () => import('../views/orcamentos/OrcamentoPdf.vue'),
+      },
+      {
         path: 'os',
         name: 'os',
         component: () => import('../views/os/OrdensServicoList.vue'),
@@ -71,6 +83,18 @@ const routes = [
         path: 'os/:id',
         name: 'os-detalhe',
         component: () => import('../views/os/OrdemServicoDetalhe.vue'),
+      },
+      {
+        // ETAPA 6 (P1-C) — item 4 (CON-005/CON-006/DOC-003): relatório de encerramento.
+        path: 'os/:id/relatorio-encerramento',
+        name: 'os-relatorio-encerramento',
+        component: () => import('../views/os/OsRelatorioEncerramento.vue'),
+      },
+      {
+        // ETAPA 6 (P1-C) — item 5 (GAR-007): relatório de garantia.
+        path: 'os/:id/relatorio-garantia',
+        name: 'os-relatorio-garantia',
+        component: () => import('../views/os/OsRelatorioGarantia.vue'),
       },
       {
         path: 'vendas-avulsas',
