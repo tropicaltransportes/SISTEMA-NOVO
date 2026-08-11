@@ -13,6 +13,8 @@ import Checkbox from 'primevue/checkbox'
 import Tag from 'primevue/tag'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
+import Dialog from 'primevue/dialog'
+import Textarea from 'primevue/textarea'
 
 const route = useRoute()
 const router = useRouter()
@@ -31,6 +33,15 @@ const checklistTemplates = ref([])
 const osOrigem = ref(null)
 const osGarantias = ref([])
 const carregando = ref(true)
+// ETAPA 4 (P1-A) — item D (EST-004): itens do orçamento desta OS (quando
+// houver), com quanto já foi executado — usados para exigir vínculo na
+// baixa de peça, em vez de deixar escolher qualquer peça livremente.
+const orcamentoItens = ref([])
+// item G (GAR-005): itens da OS ORIGINAL disponíveis para vincular quando
+// esta OS é uma garantia; e o vínculo já registrado, quando a OS atual já é
+// uma garantia.
+const itensOsOrigemParaGarantia = ref([])
+const garantiaItensVinculados = ref([])
 
 const severidadeStatus = {
   aberta: 'info', em_diagnostico: 'warn', aguardando_aprovacao: 'warn', em_execucao: 'warn',
@@ -63,7 +74,7 @@ async function carregar() {
       .eq('id', osId.value)
       .single(),
     supabase.from('os_executores').select('id, usuario_id, etapa, inicio, fim, observacao, usuario:profiles(nome)').eq('os_id', osId.value).order('inicio', { ascending: false }),
-    supabase.from('estoque_movimentos').select('id, quantidade, custo_unitario, criado_em, peca:pecas(sku, descricao)').eq('origem_tipo', 'os').eq('origem_id', osId.value).order('criado_em', { ascending: false }),
+    supabase.from('estoque_movimentos').select('id, quantidade, custo_unitario, criado_em, orcamento_item_id, tipo, peca:pecas(sku, descricao)').eq('origem_tipo', 'os').eq('origem_id', osId.value).order('criado_em', { ascending: false }),
     supabase.from('pecas').select('id, sku, descricao, saldo_atual').is('deleted_at', null).order('descricao'),
     supabase.from('checklist_templates').select('id, nome').eq('ativo', true).order('nome'),
   ])
@@ -81,12 +92,42 @@ async function carregar() {
 
   const [respOsOrigem, respOsGarantias] = await Promise.all([
     os.value.os_origem_id
-      ? supabase.from('ordens_servico').select('id, veiculo:veiculos(placa, prefixo)').eq('id', os.value.os_origem_id).single()
+      ? supabase.from('ordens_servico').select('id, veiculo:veiculos(placa, prefixo), orcamento_id').eq('id', os.value.os_origem_id).single()
       : Promise.resolve({ data: null }),
     supabase.from('ordens_servico').select('id, status, data_abertura, veiculo:veiculos(placa, prefixo)').eq('os_origem_id', osId.value),
   ])
   osOrigem.value = respOsOrigem.data
   osGarantias.value = respOsGarantias.data ?? []
+
+  // ETAPA 4 (P1-A) — item D (EST-004): itens do orçamento desta OS, com
+  // quanto já foi baixado/executado — a baixa de peça agora exige escolher
+  // um destes itens (rpc_baixar_peca_os passou a exigir p_orcamento_item_id
+  // quando a OS tem orçamento).
+  if (os.value.orcamento_id) {
+    const { data } = await supabase
+      .from('orcamento_itens')
+      .select('id, peca_id, descricao, quantidade, execucao_status, peca:pecas(sku, descricao)')
+      .eq('orcamento_id', os.value.orcamento_id)
+    orcamentoItens.value = data ?? []
+  } else {
+    orcamentoItens.value = []
+  }
+
+  // item G (GAR-005): se ESTA OS é garantia, carrega o vínculo já
+  // registrado (itens da OS original cobertos por esta garantia).
+  if (os.value.os_origem_id) {
+    const { data } = await supabase
+      .from('os_garantia_itens')
+      .select('orcamento_item_original_id, motivo, item:orcamento_itens(id, descricao, peca_id, quantidade, peca:pecas(sku, descricao))')
+      .eq('os_garantia_id', osId.value)
+    garantiaItensVinculados.value = data ?? []
+  } else {
+    garantiaItensVinculados.value = []
+  }
+  // Itens desta própria OS disponíveis para vincular ao ABRIR uma garantia
+  // NOVA a partir dela (rpc_criar_os_garantia exige ao menos um quando a OS
+  // original tem orçamento) — reaproveita orcamentoItens já carregado acima.
+  itensOsOrigemParaGarantia.value = orcamentoItens.value
 
   if (os.value.checklist_template_id) {
     const [respItens, respResp] = await Promise.all([
@@ -162,25 +203,33 @@ async function liberar() {
   await carregar()
 }
 
-async function abrirGarantia() {
-  const { data, error } = await supabase.rpc('rpc_criar_os_garantia', { p_os_origem_id: osId.value })
+// ETAPA 4 (P1-A) — item G (GAR-005): abrir garantia agora exige escolher
+// quais itens da OS original são objeto do retorno — não é mais possível
+// abrir uma garantia "em branco" e depois lançar qualquer coisa nela.
+const dialogoGarantiaAberto = ref(false)
+const itensGarantiaSelecionados = ref([])
+
+function confirmarAbrirGarantia() {
+  if (orcamentoItens.value.length === 0) {
+    // OS sem orçamento (ex.: interna) — nada para vincular, RPC aceita array vazio.
+    return abrirGarantiaComItens([])
+  }
+  itensGarantiaSelecionados.value = []
+  dialogoGarantiaAberto.value = true
+}
+
+async function abrirGarantiaComItens(itensIds) {
+  const { data, error } = await supabase.rpc('rpc_criar_os_garantia', {
+    p_os_origem_id: osId.value,
+    p_itens_originais: itensIds.length ? itensIds : null,
+  })
   if (error) {
     toast.add({ severity: 'error', summary: 'Não é possível abrir garantia', detail: error.message, life: 7000 })
     return
   }
   toast.add({ severity: 'success', summary: 'OS de garantia criada', life: 3000 })
+  dialogoGarantiaAberto.value = false
   router.push('/os/' + data)
-}
-
-function confirmarAbrirGarantia() {
-  confirm.require({
-    message: 'Abrir uma OS de garantia vinculada a esta? O cliente não será cobrado.',
-    header: 'Confirmar abertura de garantia',
-    icon: 'pi pi-shield',
-    acceptLabel: 'Abrir Garantia',
-    rejectLabel: 'Voltar',
-    accept: abrirGarantia,
-  })
 }
 
 // ---------- Checklist ----------
@@ -229,6 +278,12 @@ async function iniciarApontamento() {
   await carregar()
 }
 
+// ETAPA 4 (P1-A) — item F (CON-007): apontamento só pode ser encerrado
+// enquanto a OS não está concluída/liberada/cancelada (o backend já nega o
+// UPDATE nesses casos — esconder o botão evita o usuário tentar uma ação
+// que sempre falharia, mas a garantia real continua sendo a policy).
+const osEncerrada = computed(() => ['concluida', 'liberada', 'cancelada'].includes(os.value?.status))
+
 async function encerrarApontamento(exec) {
   const { error } = await supabase.from('os_executores').update({ fim: new Date().toISOString() }).eq('id', exec.id)
   if (error) {
@@ -239,10 +294,47 @@ async function encerrarApontamento(exec) {
 }
 
 // ---------- Baixa de peça ----------
-const formBaixa = ref({ peca_id: null, quantidade: 1 })
+// ETAPA 4 (P1-A) — item D (EST-004): quando a OS tem orçamento (ou é
+// garantia com item vinculado), a baixa exige escolher o ITEM aprovado —
+// a peça é derivada do item, não escolhida livremente (rpc_baixar_peca_os
+// agora exige p_orcamento_item_id nesses casos e bloqueia peça fora do
+// escopo aprovado).
+const formBaixa = ref({ peca_id: null, quantidade: 1, orcamento_item_id: null })
 const podeMovimentarEstoque = computed(() => ['em_diagnostico', 'em_execucao'].includes(os.value?.status))
+const exigeVinculoItem = computed(() => !!os.value?.orcamento_id || !!os.value?.os_origem_id)
+// Lista de itens elegíveis para baixa: da própria OS quando tem orçamento,
+// ou os vinculados via garantia quando a OS é retorno de garantia.
+const itensParaBaixa = computed(() => {
+  if (os.value?.orcamento_id) {
+    return orcamentoItens.value
+      .filter((i) => i.peca_id)
+      .map((i) => ({ ...i, restante: i.quantidade - quantidadeJaBaixada(i.id) }))
+  }
+  if (os.value?.os_origem_id) {
+    return garantiaItensVinculados.value
+      .filter((v) => v.item?.peca_id)
+      .map((v) => ({ id: v.item.id, peca_id: v.item.peca_id, descricao: v.item.descricao, quantidade: v.item.quantidade, peca: v.item.peca, restante: v.item.quantidade - quantidadeJaBaixada(v.item.id) }))
+  }
+  return []
+})
+function quantidadeJaBaixada(orcamentoItemId) {
+  // saída soma, estorno_saída subtrai — reflete o líquido realmente
+  // consumido deste item nesta OS (mesmo cálculo do backend em
+  // sincronizar_execucao_item_orcamento).
+  return movimentos.value
+    .filter((m) => m.orcamento_item_id === orcamentoItemId)
+    .reduce((soma, m) => soma + (m.tipo === 'estorno_saida' ? -Number(m.quantidade) : Number(m.quantidade)), 0)
+}
+function selecionouItemBaixa() {
+  const item = itensParaBaixa.value.find((i) => i.id === formBaixa.value.orcamento_item_id)
+  formBaixa.value.peca_id = item?.peca_id ?? null
+}
 
 async function baixarPeca() {
+  if (exigeVinculoItem.value && !formBaixa.value.orcamento_item_id) {
+    toast.add({ severity: 'warn', summary: 'Selecione o item do orçamento/garantia', life: 4000 })
+    return
+  }
   if (!formBaixa.value.peca_id || !formBaixa.value.quantidade) {
     toast.add({ severity: 'warn', summary: 'Selecione a peça e a quantidade', life: 4000 })
     return
@@ -251,13 +343,61 @@ async function baixarPeca() {
     p_os_id: osId.value,
     p_peca_id: formBaixa.value.peca_id,
     p_quantidade: formBaixa.value.quantidade,
+    p_orcamento_item_id: formBaixa.value.orcamento_item_id || null,
   })
   if (error) {
     toast.add({ severity: 'error', summary: 'Erro ao baixar peça', detail: error.message, life: 6000 })
     return
   }
   toast.add({ severity: 'success', summary: 'Peça baixada do estoque', life: 3000 })
-  formBaixa.value = { peca_id: null, quantidade: 1 }
+  formBaixa.value = { peca_id: null, quantidade: 1, orcamento_item_id: null }
+  await carregar()
+}
+
+// ---------- Itens de mão de obra (item E / CON-002) ----------
+// Itens sem peça (mão de obra) não têm sinal automático de execução —
+// precisam ser marcados manualmente antes de a OS poder ser concluída.
+const itensMaoDeObra = computed(() => orcamentoItens.value.filter((i) => !i.peca_id))
+const podeMarcarExecucao = computed(() => ['executor', 'encarregado', 'administrador_tecnico'].includes(auth.perfil))
+const dialogoCancelarItemAberto = ref(false)
+const itemParaCancelar = ref(null)
+const motivoCancelamento = ref('')
+
+async function marcarItemExecutado(item) {
+  const { error } = await supabase.rpc('rpc_marcar_item_orcamento_execucao', {
+    p_orcamento_item_id: item.id,
+    p_status: 'executado',
+  })
+  if (error) {
+    toast.add({ severity: 'error', summary: 'Erro ao marcar item', detail: error.message, life: 6000 })
+    return
+  }
+  toast.add({ severity: 'success', summary: 'Item marcado como executado', life: 3000 })
+  await carregar()
+}
+
+function abrirCancelarItem(item) {
+  itemParaCancelar.value = item
+  motivoCancelamento.value = ''
+  dialogoCancelarItemAberto.value = true
+}
+
+async function confirmarCancelarItem() {
+  if (!motivoCancelamento.value || motivoCancelamento.value.trim().length < 5) {
+    toast.add({ severity: 'warn', summary: 'Informe o motivo (mín. 5 caracteres)', life: 4000 })
+    return
+  }
+  const { error } = await supabase.rpc('rpc_marcar_item_orcamento_execucao', {
+    p_orcamento_item_id: itemParaCancelar.value.id,
+    p_status: 'cancelado',
+    p_motivo: motivoCancelamento.value,
+  })
+  if (error) {
+    toast.add({ severity: 'error', summary: 'Erro ao cancelar item', detail: error.message, life: 6000 })
+    return
+  }
+  toast.add({ severity: 'success', summary: 'Item dispensado (auditado)', life: 3000 })
+  dialogoCancelarItemAberto.value = false
   await carregar()
 }
 
@@ -354,16 +494,56 @@ watch(osId, carregar, { immediate: true })
         <Column header="Fim">
           <template #body="{ data }">
             <span v-if="data.fim">{{ new Date(data.fim).toLocaleString('pt-BR') }}</span>
-            <Button v-else-if="data.usuario_id === auth.profile.id" label="Encerrar" size="small" text @click="encerrarApontamento(data)" />
+            <!-- CON-007 (ETAPA 4 P1-A): encerrar só disponível enquanto a OS não está fechada -->
+            <Button v-else-if="data.usuario_id === auth.profile.id && !osEncerrada" label="Encerrar" size="small" text @click="encerrarApontamento(data)" />
           </template>
         </Column>
         <Column field="observacao" header="Observação" />
       </DataTable>
+      <p v-if="osEncerrada" class="hint">OS encerrada — apontamentos não são mais editáveis diretamente (correção formal auditada disponível ao encarregado/admin técnico).</p>
+    </div>
+
+    <div class="secao" v-if="os.orcamento_id && itensMaoDeObra.length > 0">
+      <h3>Itens de Mão de Obra do Orçamento (CON-002)</h3>
+      <p class="hint">Itens sem peça não têm sinal automático de execução — marque manualmente antes de concluir a OS.</p>
+      <ul class="checklist">
+        <li v-for="item in itensMaoDeObra" :key="item.id">
+          <span>{{ item.descricao }} ({{ item.quantidade }})</span>
+          <Tag :severity="item.execucao_status === 'executado' ? 'success' : item.execucao_status === 'cancelado' ? 'danger' : 'warn'" :value="item.execucao_status" />
+          <template v-if="podeMarcarExecucao && !['executado', 'cancelado'].includes(item.execucao_status)">
+            <Button label="Marcar executado" size="small" text @click="marcarItemExecutado(item)" />
+            <Button label="Dispensar (cancelar)" size="small" text severity="danger" @click="abrirCancelarItem(item)" />
+          </template>
+        </li>
+      </ul>
     </div>
 
     <div class="secao">
       <h3>Peças Utilizadas</h3>
-      <div class="form-linha" v-if="podeBaixarPeca && podeMovimentarEstoque">
+      <!-- EST-004/GAR-005 (ETAPA 4 P1-A): quando a OS tem orçamento (ou é garantia
+           vinculada), a baixa exige escolher o ITEM aprovado — a peça é derivada
+           dele, nunca uma peça livre fora do escopo aprovado. -->
+      <div class="form-linha" v-if="podeBaixarPeca && podeMovimentarEstoque && exigeVinculoItem">
+        <Select
+          v-model="formBaixa.orcamento_item_id"
+          :options="itensParaBaixa"
+          optionLabel="descricao"
+          optionValue="id"
+          filter
+          placeholder="Item aprovado (orçamento/garantia)"
+          @update:modelValue="selecionouItemBaixa"
+        >
+          <template #option="{ option }">
+            {{ option.descricao }} — {{ option.peca?.descricao }} (restam {{ option.restante }} de {{ option.quantidade }})
+          </template>
+        </Select>
+        <InputNumber v-model="formBaixa.quantidade" :minFractionDigits="0" :maxFractionDigits="3" placeholder="Qtde" />
+        <Button label="Baixar" size="small" @click="baixarPeca" :disabled="!formBaixa.orcamento_item_id" />
+      </div>
+      <p v-else-if="podeBaixarPeca && podeMovimentarEstoque && exigeVinculoItem && itensParaBaixa.length === 0" class="hint">
+        Nenhum item de peça aprovado disponível para baixa nesta OS.
+      </p>
+      <div class="form-linha" v-else-if="podeBaixarPeca && podeMovimentarEstoque">
         <Select v-model="formBaixa.peca_id" :options="pecas" optionLabel="descricao" optionValue="id" filter placeholder="Peça" />
         <InputNumber v-model="formBaixa.quantidade" :minFractionDigits="0" :maxFractionDigits="3" placeholder="Qtde" />
         <Button label="Baixar" size="small" @click="baixarPeca" />
@@ -376,6 +556,33 @@ watch(osId, carregar, { immediate: true })
         <Column header="Data"><template #body="{ data }">{{ new Date(data.criado_em).toLocaleString('pt-BR') }}</template></Column>
       </DataTable>
     </div>
+
+    <!-- GAR-005 (ETAPA 4 P1-A): escolher itens da própria OS ao abrir uma garantia -->
+    <Dialog v-model:visible="dialogoGarantiaAberto" modal header="Abrir Garantia — vincular itens originais" style="width: 480px">
+      <p class="hint">Selecione quais itens desta OS são objeto do retorno em garantia. Só serviço/peça vinculado a um destes itens poderá ser lançado na OS de garantia.</p>
+      <div v-for="item in itensOsOrigemParaGarantia" :key="item.id" class="checklist" style="margin-bottom:0.25rem">
+        <Checkbox
+          :modelValue="itensGarantiaSelecionados.includes(item.id)"
+          binary
+          @update:modelValue="(v) => { itensGarantiaSelecionados = v ? [...itensGarantiaSelecionados, item.id] : itensGarantiaSelecionados.filter((i) => i !== item.id) }"
+        />
+        <span style="margin-left:0.4rem">{{ item.descricao }}<span v-if="item.peca"> — {{ item.peca.descricao }}</span></span>
+      </div>
+      <template #footer>
+        <Button label="Cancelar" text @click="dialogoGarantiaAberto = false" />
+        <Button label="Abrir Garantia" :disabled="itensGarantiaSelecionados.length === 0" @click="abrirGarantiaComItens(itensGarantiaSelecionados)" />
+      </template>
+    </Dialog>
+
+    <!-- CON-002 (ETAPA 4 P1-A): motivo obrigatório para dispensar item aprovado -->
+    <Dialog v-model:visible="dialogoCancelarItemAberto" modal header="Dispensar item aprovado" style="width: 420px">
+      <p class="hint">Cancelar um item aprovado do orçamento exige motivo — fica registrado na trilha de auditoria.</p>
+      <Textarea v-model="motivoCancelamento" rows="3" autoResize placeholder="Motivo (mínimo 5 caracteres)" style="width:100%" />
+      <template #footer>
+        <Button label="Voltar" text @click="dialogoCancelarItemAberto = false" />
+        <Button label="Confirmar dispensa" severity="danger" @click="confirmarCancelarItem" />
+      </template>
+    </Dialog>
   </div>
 </template>
 

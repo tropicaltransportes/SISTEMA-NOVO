@@ -23,7 +23,10 @@ async function entrar() {
     await auth.login(email.value, password.value)
     router.push(route.query.redirect ?? '/')
   } catch (e) {
-    erro.value = 'E-mail ou senha inválidos.'
+    // ETAPA 4 (P1-A): conta inativa tem mensagem própria (auth.js lança
+    // esse erro específico) — o resto continua como "credenciais inválidas"
+    // genérico, para não vazar se um e-mail existe ou não.
+    erro.value = e?.message?.includes('inativa') ? e.message : 'E-mail ou senha inválidos.'
   } finally {
     carregando.value = false
   }

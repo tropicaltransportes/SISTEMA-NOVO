@@ -1,0 +1,53 @@
+### EST-009 regressao (idempotency_key persistente, fresh) ###
+
+--- cria peca fresh ---
+HTTP 201
+[{"id":"1ba4e9e7-0a04-4cf0-ab86-610717a40fe5","sku":"QA_PECA_EST009_REG_1786462420","descricao":"TESTE regressao EST009","unidade":"UN","saldo_atual":0.000,"custo_medio":10.0000,"estoque_minimo":1.000,"deleted_at":null,"criado_em":"2026-08-11T15:33:40.689924+00:00"}]
+
+--- NF ---
+HTTP 201
+[{"id":"88cd6f3b-0cda-4861-af41-dd835ec7acb2","numero":"NF-REG-1786462420","fornecedor":"TESTE","status":"rascunho","data_emissao":"2026-08-12","criado_por":"a0000000-0000-0000-0000-000000000003","criado_em":"2026-08-11T15:33:41.241704+00:00"}]
+
+--- item ---
+HTTP 201
+[{"id":"58c46ab5-a4ea-4a36-8ff6-acda6c9fe4ac","nf_id":"88cd6f3b-0cda-4861-af41-dd835ec7acb2","peca_id":"1ba4e9e7-0a04-4cf0-ab86-610717a40fe5","quantidade":30.000,"valor_unitario":10.0000}]
+
+--- confirma NF ---
+HTTP 204
+
+
+--- cria OS ---
+HTTP 200
+"25f13778-6a19-46d4-b791-1b874df25dfb"
+
+--- transiciona ---
+HTTP 204
+
+
+--- transiciona2 ---
+HTTP 204
+
+
+--- baixa original K1 (5un) ---
+HTTP 204
+
+aguardando 6s...
+
+--- retry apos 6s MESMA K1 -- deve continuar bloqueado ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Operação já processada (idempotency_key b4a0c7b3-22f1-4b34-be0f-962884f3a19c já usada para esta baixa) — nenhuma nova movimentação foi registrada"}
+
+--- saldo final (esperado 25, nao duplicou) ---
+HTTP 200
+[{"saldo_atual":25.000}]
+
+### DOC-006 regressao (nao-executor le qualquer documento; executor bloqueado) ###
+upload -> HTTP 200
+
+--- DIRETORIA le o documento (nunca participou do upload) ---
+HTTP 200
+teste doc006
+
+--- EXECUTOR tenta ler o documento -- deve ser bloqueado ---
+HTTP 400
+{"statusCode":"404","error":"not_found","message":"Object not found","code":"NoSuchKey"}

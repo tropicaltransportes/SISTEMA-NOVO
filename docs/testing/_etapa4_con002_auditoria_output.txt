@@ -1,0 +1,106 @@
+############################################
+# preparar: define checklist, avanca a OS ate aguardando_teste, responde checklist obrigatorio
+############################################
+
+--- define checklist ---
+HTTP 204
+
+
+--- em_diagnostico->em_execucao ---
+HTTP 204
+
+
+--- em_execucao->aguardando_teste ---
+HTTP 204
+
+
+--- responde item obrigatorio do checklist (upsert) ---
+HTTP 201
+[{"id":"bc61625e-93b9-406a-9e1c-d8c18af35f3c","os_id":"87cf422d-8914-4095-abeb-6a3e89f25568","template_item_id":"20000000-0000-0000-0000-000000000011","ok":true,"respondido_por":"a0000000-0000-0000-0000-000000000001","respondido_em":"2026-08-12T00:00:00+00:00"}]
+
+############################################
+# E1: tenta concluir com ITEM_MDO (mao de obra) ainda 'pendente' e ITEM_BAIXA 'pendente' -- deve BLOQUEAR (checklist ok, mas itens nao)
+############################################
+
+--- tenta concluir OS (itens aprovados ainda pendentes) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Existem itens aprovados do orçamento pendentes ou parcialmente executados — baixe as peças aprovadas ou marque a execução (rpc_marcar_item_orcamento_execucao) antes de concluir"}
+
+############################################
+# E2: marca ITEM_MDO como executado (mao de obra, sem sinal automatico)
+############################################
+
+--- encarregado marca ITEM_MDO executado ---
+HTTP 204
+
+
+############################################
+# E3: tenta concluir ainda com ITEM_BAIXA pendente -- deve continuar BLOQUEADO
+############################################
+
+--- tenta concluir (ITEM_BAIXA ainda pendente) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Existem itens aprovados do orçamento pendentes ou parcialmente executados — baixe as peças aprovadas ou marque a execução (rpc_marcar_item_orcamento_execucao) antes de concluir"}
+
+############################################
+# E4: cancela ITEM_BAIXA sem motivo -- deve BLOQUEAR (motivo obrigatorio)
+############################################
+
+--- tenta cancelar ITEM_BAIXA sem motivo ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Cancelar um item aprovado exige motivo (mínimo de 5 caracteres) — ação auditável"}
+
+############################################
+# E5: cancela ITEM_BAIXA com motivo (peca sem estoque suficiente, decisao operacional) -- deve PASSAR
+############################################
+
+--- cancela ITEM_BAIXA com motivo ---
+HTTP 204
+
+
+############################################
+# E6: agora conclui a OS -- deve PASSAR (todos os itens: executado/executado/cancelado)
+############################################
+
+--- conclui OS ---
+HTTP 204
+
+--- status final da OS ---
+[{"id":"87cf422d-8914-4095-abeb-6a3e89f25568","status":"concluida"}]
+
+############################################
+# H: trilha de auditoria — confirma que os eventos criticos ficaram registrados
+############################################
+
+--- EXECUTOR (nao-gestao) tenta ler auditoria -- deve ser filtrado (0 linhas, nao erro) ---
+HTTP 200
+[]
+
+--- ENCARREGADO le eventos de auditoria da OS (mudanca_status) ---
+HTTP 200
+[{"acao":"mudanca_status","valor_anterior":{"status": "em_diagnostico"},"valor_novo":{"status": "em_execucao"},"usuario_id":"a0000000-0000-0000-0000-000000000002","criado_em":"2026-08-11T15:22:04.074119+00:00"}, 
+ {"acao":"mudanca_status","valor_anterior":{"status": "em_execucao"},"valor_novo":{"status": "aguardando_teste"},"usuario_id":"a0000000-0000-0000-0000-000000000002","criado_em":"2026-08-11T15:22:04.542961+00:00"}, 
+ {"acao":"mudanca_status","valor_anterior":{"status": "aguardando_teste"},"valor_novo":{"status": "concluida"},"usuario_id":"a0000000-0000-0000-0000-000000000002","criado_em":"2026-08-11T15:22:07.793322+00:00"}]
+
+--- ENCARREGADO le eventos de auditoria do item MDO (marcar_execucao_item) ---
+HTTP 200
+[{"acao":"marcar_execucao_item","valor_anterior":{"execucao_status": "pendente"},"valor_novo":{"execucao_status": "executado"},"motivo":null}]
+
+--- ENCARREGADO le eventos de auditoria do item BAIXA (cancelado com motivo) ---
+HTTP 200
+[{"acao":"marcar_execucao_item","valor_anterior":{"execucao_status": "pendente"},"valor_novo":{"execucao_status": "cancelado"},"motivo":"Estoque insuficiente no fornecedor, cliente ciente e dispensou o item"}]
+
+############################################
+# H (imutabilidade): auditoria nao pode ser alterada/apagada por usuario comum
+############################################
+AUD_ID=c177d0fb-6cef-4875-a43c-882e9ae63ac8
+
+--- ENCARREGADO (gestao) tenta UPDATE direto em auditoria_eventos -- deve ser negado ---
+HTTP 403
+{"code":"42501","details":null,"hint":"Grant the required privileges to the current role with: GRANT UPDATE ON public.auditoria_eventos TO authenticated;","message":"permission denied for table auditoria_eventos"}
+
+--- ADMIN tenta DELETE direto em auditoria_eventos -- deve ser negado ---
+HTTP 403
+{"code":"42501","details":null,"hint":"Grant the required privileges to the current role with: GRANT DELETE ON public.auditoria_eventos TO authenticated;","message":"permission denied for table auditoria_eventos"}
+
+=== FIM ===

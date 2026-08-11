@@ -1,0 +1,31 @@
+### AUD-001: alteracao de preco de item de orcamento (rascunho) ###
+
+--- cria orcamento rascunho ---
+HTTP 201
+[{"id":"fd985ca6-0ee4-4af5-9a27-3b4d83b4ed59","solicitacao_id":null,"veiculo_id":"c0000000-0000-0000-0000-000000000001","cliente_id":"b0000000-0000-0000-0000-000000000001","orcamento_raiz_id":null,"versao":1,"status":"rascunho","valor_total":0.00,"autorizado_por_nome":null,"autorizado_em":null,"comprovante_path":null,"criado_por":"a0000000-0000-0000-0000-000000000002","criado_em":"2026-08-11T15:45:19.263002+00:00","client_request_id":null}]
+
+--- item R$100 ---
+HTTP 201
+[{"id":"8dd094f0-d3a2-46e1-a008-8ee70bef13e7","orcamento_id":"fd985ca6-0ee4-4af5-9a27-3b4d83b4ed59","peca_id":null,"descricao":"TESTE AUD001","quantidade":1.000,"valor_unitario":100.00,"valor_total":100.00,"execucao_status":"pendente"}]
+
+--- altera preco de 100 para 250 ---
+HTTP 200
+[{"id":"8dd094f0-d3a2-46e1-a008-8ee70bef13e7","orcamento_id":"fd985ca6-0ee4-4af5-9a27-3b4d83b4ed59","peca_id":null,"descricao":"TESTE AUD001","quantidade":1.000,"valor_unitario":250.00,"valor_total":250.00,"execucao_status":"pendente"}]
+
+--- confirma evento de auditoria (alteracao_preco) ---
+HTTP 200
+[{"acao":"alteracao_preco","valor_anterior":{"valor_unitario": 100.00},"valor_novo":{"valor_unitario": 250.00},"usuario_id":"a0000000-0000-0000-0000-000000000002"}]
+
+### AUD-003: cancelamento de OS ###
+
+--- cria OS interna exclusiva ---
+HTTP 200
+"302efa1f-b5fc-4585-ac5d-fd6c37f92c2c"
+
+--- cancela a OS ---
+HTTP 204
+
+
+--- confirma evento de auditoria (mudanca_status: aberta -> cancelada) ---
+HTTP 200
+[{"acao":"mudanca_status","valor_anterior":{"status": "aberta"},"valor_novo":{"status": "cancelada"},"usuario_id":"a0000000-0000-0000-0000-000000000002"}]

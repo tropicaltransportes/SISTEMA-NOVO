@@ -105,7 +105,13 @@ async function salvar() {
   salvando.value = false
 
   if (error) {
-    toast.add({ severity: 'error', summary: 'Erro ao salvar', detail: error.message, life: 5000 })
+    // CAD-004 (ETAPA 4 P1-A): índice único parcial normaliza CPF/CNPJ e
+    // bloqueia duplicidade entre clientes ativos — mensagem amigável em vez
+    // do texto cru do Postgres.
+    const detalhe = error.code === '23505'
+      ? 'Já existe um cliente ativo com este documento (CPF/CNPJ), mesmo com pontuação diferente.'
+      : error.message
+    toast.add({ severity: 'error', summary: 'Erro ao salvar', detail: detalhe, life: 6000 })
     return
   }
   toast.add({ severity: 'success', summary: 'Cliente salvo', life: 3000 })

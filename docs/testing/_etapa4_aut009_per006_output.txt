@@ -1,0 +1,17 @@
+### AUT-009/PER-006: acao administrativa restrita, chamada direta pela API (nao pelo botao) ###
+
+--- EXECUTOR (perfil sem permissao) chama rpc_criar_os direto ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para criar ordem de serviço"}
+
+--- EXECUTOR tenta ler faixas de acrescimo (rota admin-only no frontend) via API direta ---
+HTTP 200
+[]
+
+--- SUPORTE (perfil errado tambem) chama rpc_aprovar_orcamento ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para aprovar orçamento"}
+
+--- ADMIN (perfil correto) confirma que a MESMA acao (rpc_criar_os) funciona pra quem tem permissao ---
+HTTP 200
+"c2571aa5-94a4-467b-9768-5a7ca7c1db8d"

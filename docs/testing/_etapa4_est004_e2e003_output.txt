@@ -1,0 +1,143 @@
+############################################
+# SETUP: peça, cliente/veiculo externo, orcamento com 2 itens (1 peca qtd 3, 1 mao de obra), aprovado -> OS
+############################################
+
+--- SUPORTE cria peca exclusiva P1A_EST004 ---
+HTTP 201
+[{"id":"317ddb3d-ec7b-45db-ae3a-37cd778df791","sku":"QA_PECA_P1A_EST004","descricao":"TESTE_P1A_Peca_EST004","unidade":"UN","saldo_atual":0.000,"custo_medio":10.0000,"estoque_minimo":1.000,"deleted_at":null,"criado_em":"2026-08-11T15:19:13.617326+00:00"}]
+
+--- SUPORTE cria peca com saldo BAIXO P1A_EST004B ---
+HTTP 201
+[{"id":"202e8075-30d5-4897-b15d-fc7bf7e03b5e","sku":"QA_PECA_P1A_EST004B_BAIXO","descricao":"TESTE_P1A_Peca_EST004_Saldo_Baixo","unidade":"UN","saldo_atual":0.000,"custo_medio":10.0000,"estoque_minimo":1.000,"deleted_at":null,"criado_em":"2026-08-11T15:19:14.177477+00:00"}]
+
+--- SUPORTE cria NF rascunho ---
+HTTP 201
+[{"id":"41064fcc-8e4a-4df8-a20f-b266a1c11fc6","numero":"NF-P1A-EST004","fornecedor":"TESTE_Fornecedor_P1A","status":"rascunho","data_emissao":"2026-08-12","criado_por":"a0000000-0000-0000-0000-000000000003","criado_em":"2026-08-11T15:19:14.697701+00:00"}]
+
+--- item NF: 10un peca principal ---
+HTTP 201
+[{"id":"b5be67bd-90c6-4fb9-9a40-f788a53873df","nf_id":"41064fcc-8e4a-4df8-a20f-b266a1c11fc6","peca_id":"317ddb3d-ec7b-45db-ae3a-37cd778df791","quantidade":10.000,"valor_unitario":10.0000}]
+
+--- item NF: 1un peca saldo baixo ---
+HTTP 201
+[{"id":"6e36654b-a757-49dd-b8ba-5e6b7e3a4597","nf_id":"41064fcc-8e4a-4df8-a20f-b266a1c11fc6","peca_id":"202e8075-30d5-4897-b15d-fc7bf7e03b5e","quantidade":1.000,"valor_unitario":10.0000}]
+
+--- confirma NF ---
+HTTP 204
+
+CLIENTE_ID=faf27a7f-0ee8-4edd-be1e-6e3981b88e33 VEICULO_ID=058b5031-8752-43c3-a3dd-a6dbe959a1fa
+
+--- cria orcamento rascunho ---
+HTTP 201
+[{"id":"818b64ac-00f7-4f18-a4f6-d803719fb6ac","solicitacao_id":null,"veiculo_id":"058b5031-8752-43c3-a3dd-a6dbe959a1fa","cliente_id":"faf27a7f-0ee8-4edd-be1e-6e3981b88e33","orcamento_raiz_id":null,"versao":1,"status":"rascunho","valor_total":0.00,"autorizado_por_nome":null,"autorizado_em":null,"comprovante_path":null,"criado_por":"a0000000-0000-0000-0000-000000000002","criado_em":"2026-08-11T15:19:17.626603+00:00","client_request_id":null}]
+
+--- item peca (qtd 3, aprovado) ---
+HTTP 201
+[{"id":"cf19a9c3-f46a-4a8d-955f-875bd97b11f9","orcamento_id":"818b64ac-00f7-4f18-a4f6-d803719fb6ac","peca_id":"317ddb3d-ec7b-45db-ae3a-37cd778df791","descricao":"TESTE peca principal","quantidade":3.000,"valor_unitario":50.00,"valor_total":150.00,"execucao_status":"pendente"}]
+
+--- item mao de obra (sem peca) ---
+HTTP 201
+[{"id":"0c226844-d0a9-412d-8043-0d3a19f363cc","orcamento_id":"818b64ac-00f7-4f18-a4f6-d803719fb6ac","peca_id":null,"descricao":"TESTE mao de obra","quantidade":1.000,"valor_unitario":200.00,"valor_total":200.00,"execucao_status":"pendente"}]
+
+--- item peca SALDO BAIXO (qtd 5, aprovado -- mais do que o estoque tem) ---
+HTTP 201
+[{"id":"d89ce089-af77-4d4b-b045-6b6af92fd42a","orcamento_id":"818b64ac-00f7-4f18-a4f6-d803719fb6ac","peca_id":"202e8075-30d5-4897-b15d-fc7bf7e03b5e","descricao":"TESTE peca saldo insuficiente","quantidade":5.000,"valor_unitario":30.00,"valor_total":150.00,"execucao_status":"pendente"}]
+ORC=818b64ac-00f7-4f18-a4f6-d803719fb6ac ITEM_PECA=cf19a9c3-f46a-4a8d-955f-875bd97b11f9 ITEM_MDO=0c226844-d0a9-412d-8043-0d3a19f363cc ITEM_BAIXA=d89ce089-af77-4d4b-b045-6b6af92fd42a
+
+--- envia orcamento ---
+HTTP 204
+
+
+--- registra autorizacao (cliente externo) ---
+HTTP 204
+
+
+--- aprova orcamento ---
+HTTP 204
+
+
+--- converte em OS externa ---
+HTTP 200
+"87cf422d-8914-4095-abeb-6a3e89f25568"
+OS=87cf422d-8914-4095-abeb-6a3e89f25568
+--- SALDO da peca principal LOGO APOS a conversao (esperado: 10, NAO baixou nada na conversao -- decisao B) ---
+[{"sku":"QA_PECA_P1A_EST004","saldo_atual":10.000}]
+
+--- transiciona aberta->em_diagnostico ---
+HTTP 204
+
+
+############################################
+# D1: baixa SEM informar orcamento_item_id -- deve BLOQUEAR (OS tem orcamento)
+############################################
+
+--- EXECUTOR tenta baixar peca principal SEM p_orcamento_item_id ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"OS originada de orçamento: informe o item do orçamento (p_orcamento_item_id) ao baixar peça — baixa avulsa sem vínculo com o item aprovado não é permitida nesta OS"}
+
+############################################
+# D2: baixa vinculada a item aprovado, dentro da quantidade -- deve PASSAR
+############################################
+
+--- EXECUTOR baixa 2un vinculada ao ITEM_PECA (aprovado 3) ---
+HTTP 204
+
+--- saldo apos baixar 2un (esperado 8) ---
+[{"sku":"QA_PECA_P1A_EST004","saldo_atual":8.000}]
+--- execucao_status do ITEM_PECA (esperado: parcial, 2 de 3) ---
+[{"id":"cf19a9c3-f46a-4a8d-955f-875bd97b11f9","quantidade":3.000,"execucao_status":"parcial"}]
+
+############################################
+# D3: baixa que ULTRAPASSA o aprovado (2 ja baixado + 5 nao cabe em 3 aprovado) -- deve BLOQUEAR com msg de adicional
+############################################
+
+--- EXECUTOR tenta baixar mais 5un do ITEM_PECA (so restam 1) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Quantidade solicitada (5) excede o saldo aprovado do item no orçamento (aprovado 3.000, já executado 2.000) — necessário adicional"}
+
+############################################
+# D4: completa exatamente o restante (1un) -- item deve virar 'executado'
+############################################
+
+--- EXECUTOR baixa a 1un restante ---
+HTTP 204
+
+--- execucao_status do ITEM_PECA (esperado: executado, 3 de 3) ---
+[{"id":"cf19a9c3-f46a-4a8d-955f-875bd97b11f9","quantidade":3.000,"execucao_status":"executado"}]
+
+############################################
+# D5: tenta baixar peca FORA do escopo aprovado (peca de outro item, informando item errado) -- deve BLOQUEAR
+############################################
+
+--- EXECUTOR tenta baixar PECA_BAIXA usando ITEM_PECA (peca nao bate com o item) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Peça informada não corresponde ao item aprovado do orçamento — peça fora do escopo aprovado exige fluxo de Adicional (não disponível nesta etapa); baixa bloqueada"}
+
+############################################
+# E2E-003: estoque insuficiente na baixa real (execucao), erro EXPLICITO, sem saldo negativo
+############################################
+
+--- EXECUTOR tenta baixar 5un do ITEM_BAIXA (aprovado 5, mas estoque so tem 1) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Estoque insuficiente para a peça 202e8075-30d5-4897-b15d-fc7bf7e03b5e (saldo disponível 1.000, quantidade solicitada 5)"}
+--- saldo da peca baixa (esperado: continua 1, nunca ficou negativo) ---
+[{"sku":"QA_PECA_P1A_EST004B_BAIXO","saldo_atual":1.000}]
+
+############################################
+# CONTROLE: OS SEM orcamento (interna) continua permitindo baixa livre (sem p_orcamento_item_id) -- nao regrediu
+############################################
+
+--- ADMIN cria OS interna livre ---
+HTTP 200
+"c0464fd9-faef-4237-87cb-3c1cd71c3248"
+
+--- transiciona ---
+HTTP 204
+
+
+--- EXECUTOR baixa peca SEM orcamento_item_id em OS SEM orcamento (deve funcionar normal) ---
+HTTP 204
+
+
+ORC=818b64ac-00f7-4f18-a4f6-d803719fb6ac OS=87cf422d-8914-4095-abeb-6a3e89f25568 ITEM_PECA=cf19a9c3-f46a-4a8d-955f-875bd97b11f9 ITEM_BAIXA=d89ce089-af77-4d4b-b045-6b6af92fd42a PECA=317ddb3d-ec7b-45db-ae3a-37cd778df791 PECA_BAIXA=202e8075-30d5-4897-b15d-fc7bf7e03b5e
+=== FIM ===
