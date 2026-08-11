@@ -1,0 +1,131 @@
+CLIENTE_ID=faf27a7f-0ee8-4edd-be1e-6e3981b88e33 VEICULO_ID=058b5031-8752-43c3-a3dd-a6dbe959a1fa
+
+############################################
+# CENARIO C: 100% REJEITADO -- orcamento fica 'rejeitado', conversao em OS bloqueada
+############################################
+
+--- cria orcamento rascunho ---
+HTTP 201
+[{"id":"ddc036dc-618d-40be-a6bb-b5812fa9814d","solicitacao_id":null,"veiculo_id":"058b5031-8752-43c3-a3dd-a6dbe959a1fa","cliente_id":"faf27a7f-0ee8-4edd-be1e-6e3981b88e33","orcamento_raiz_id":null,"versao":1,"status":"rascunho","valor_total":0.00,"autorizado_por_nome":null,"autorizado_em":null,"comprovante_path":null,"criado_por":"a0000000-0000-0000-0000-000000000002","criado_em":"2026-08-11T18:48:14.423398+00:00","client_request_id":null}]
+
+--- item unico R$500 ---
+HTTP 201
+[{"id":"883b163a-62a4-4d39-9230-c95e75e6ba61","orcamento_id":"ddc036dc-618d-40be-a6bb-b5812fa9814d","peca_id":null,"descricao":"TESTE cenario C item unico","quantidade":1.000,"valor_unitario":500.00,"valor_total":500.00,"execucao_status":"pendente","status_aprovacao":"pendente","meio_aprovacao":null,"autorizado_por_nome":null,"autorizado_em":null,"registrado_por":null,"comprovante_path":null,"observacao":null}]
+
+--- envia ---
+HTTP 204
+
+
+--- decide item REJEITADO (unico item) ---
+HTTP 204
+
+
+--- status do orcamento (esperado: rejeitado) ---
+HTTP 200
+[{"status":"rejeitado"}]
+
+--- tenta converter orcamento 100% rejeitado em OS -- deve BLOQUEAR ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Orçamento precisa estar aprovado ou parcialmente aprovado para gerar OS (status atual: rejeitado)"}
+
+############################################
+# CENARIO N (concorrencia REAL): duas requisicoes HTTP EM PARALELO tentando decidir o MESMO item com decisoes DIFERENTES
+############################################
+
+--- cria orcamento rascunho p/ teste de concorrencia ---
+HTTP 201
+[{"id":"92dbd971-dcee-40eb-ba10-9b1e0482c0c1","solicitacao_id":null,"veiculo_id":"058b5031-8752-43c3-a3dd-a6dbe959a1fa","cliente_id":"faf27a7f-0ee8-4edd-be1e-6e3981b88e33","orcamento_raiz_id":null,"versao":1,"status":"rascunho","valor_total":0.00,"autorizado_por_nome":null,"autorizado_em":null,"comprovante_path":null,"criado_por":"a0000000-0000-0000-0000-000000000002","criado_em":"2026-08-11T18:48:17.585832+00:00","client_request_id":null}]
+
+--- item unico R$800 (alvo da corrida) ---
+HTTP 201
+[{"id":"f1c08130-6d57-4765-8ae7-e22dcf0b3eb2","orcamento_id":"92dbd971-dcee-40eb-ba10-9b1e0482c0c1","peca_id":null,"descricao":"TESTE cenario N corrida","quantidade":1.000,"valor_unitario":800.00,"valor_total":800.00,"execucao_status":"pendente","status_aprovacao":"pendente","meio_aprovacao":null,"autorizado_por_nome":null,"autorizado_em":null,"registrado_por":null,"comprovante_path":null,"observacao":null}]
+
+--- envia ---
+HTTP 204
+
+--- disparando 2 chamadas REAIS em paralelo: ENCARREGADO aprova / SUPORTE rejeita, o MESMO item, ao mesmo tempo ---
+--- resultado da chamada 'aprova' (ENCARREGADO) ---
+HTTP 204
+
+--- resultado da chamada 'rejeita' (SUPORTE) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Item já decidido anteriormente (aprovado) — decisão não pode ser revertida/trocada; crie uma nova versão do orçamento para alterar"}
+
+--- estado FINAL do item apos a corrida (esperado: exatamente UMA das duas decisoes venceu, nunca as duas) ---
+HTTP 200
+[{"status_aprovacao":"aprovado","meio_aprovacao":"sistema","registrado_por":"a0000000-0000-0000-0000-000000000002"}]
+
+--- auditoria do item (esperado: 1 UNICO evento decisao_item_orcamento, nao 2) ---
+HTTP 200
+[{"acao":"decisao_item_orcamento","valor_novo":{"meio_aprovacao": "sistema", "status_aprovacao": "aprovado", "autorizado_por_nome": "TESTE Race"},"usuario_id":"a0000000-0000-0000-0000-000000000002"}]
+
+############################################
+# Fixtures p/ cenarios H/J: OS interna simples (sem orcamento) so p/ hospedar adicionais 100%
+############################################
+
+--- cria OS interna p/ hospedar os adicionais H/J ---
+HTTP 200
+"378dfe18-3245-425b-9c24-d9ea546aacc0"
+OS_HJ=378dfe18-3245-425b-9c24-d9ea546aacc0
+
+--- transiciona ---
+HTTP 204
+
+
+############################################
+# CENARIO H: adicional 100% APROVADO (todos os itens aprovados)
+############################################
+
+--- cria adicional AD-H (2 itens, mao de obra) ---
+HTTP 200
+"d315673b-e65b-4eb4-a531-e5105c8c6043"
+
+--- inclui item H1 ---
+HTTP 200
+"f5c5cbc6-ddee-48d8-8369-e80e00dcbe1d"
+
+--- inclui item H2 ---
+HTTP 200
+"357f2bbe-d980-4132-8b3e-81641551da3c"
+
+--- decide H1 aprovado ---
+HTTP 204
+
+
+--- decide H2 aprovado ---
+HTTP 204
+
+
+--- status do adicional AD-H (esperado: aprovado, 100%) ---
+HTTP 200
+[{"status":"aprovado"}]
+
+############################################
+# CENARIO J: adicional 100% REJEITADO (todos os itens rejeitados)
+############################################
+
+--- cria adicional AD-J (2 itens, mao de obra) ---
+HTTP 200
+"7ffa7b71-54cb-4ac0-a14b-7c9c99654dca"
+
+--- inclui item J1 ---
+HTTP 200
+"7602f63e-d6d8-4c56-afdc-af5eb89d7c86"
+
+--- inclui item J2 ---
+HTTP 200
+"2e03f221-a39e-4070-9dc4-08f66fd4d496"
+
+--- decide J1 rejeitado ---
+HTTP 204
+
+
+--- decide J2 rejeitado ---
+HTTP 204
+
+
+--- status do adicional AD-J (esperado: rejeitado, 100%) ---
+HTTP 200
+[{"status":"rejeitado"}]
+
+=== FIM CENARIOS EXTRAS (C + N real + H + J) ===

@@ -61,6 +61,28 @@ export const PODE_VER_FINANCEIRO = [PERFIS.ENCARREGADO, PERFIS.SUPORTE_ADMINISTR
 export const PODE_GERIR_CHECKLIST = [PERFIS.ENCARREGADO, PERFIS.ADMINISTRADOR_TECNICO]
 export const PODE_GERIR_FAIXAS_ACRESCIMO = [PERFIS.ADMINISTRADOR_TECNICO]
 
+// ETAPA 5 (P1-B) — APR-002/004/005/006: decisão por item de orçamento (com
+// meio de aprovação estruturado) — rpc_decidir_item_orcamento. Mesma união
+// de perfis que já registrava autorização/comprovante no P1-A (encarregado/
+// suporte administrativo/admin técnico); executor NUNCA decide (BR-006/
+// instrução item 13, explícito: "executor não pode aprovar").
+export const PODE_DECIDIR_ITEM_ORCAMENTO = [PERFIS.ENCARREGADO, PERFIS.SUPORTE_ADMINISTRATIVO, PERFIS.ADMINISTRADOR_TECNICO]
+
+// ETAPA 5 (P1-B) — ADC-001..008: adicionais durante a OS.
+// Identificar necessidade (abrir o cabeçalho do adicional, só motivo, sem
+// preço) — rpc_criar_os_adicional. Executor participa aqui (ele que está
+// executando e percebe a necessidade), mas NUNCA precifica nem decide.
+export const PODE_IDENTIFICAR_ADICIONAL = [PERFIS.EXECUTOR, PERFIS.ENCARREGADO, PERFIS.ADMINISTRADOR_TECNICO]
+// Precificar/incluir item no adicional (define valor) — rpc_incluir_item_os_adicional.
+// Mesma autoridade de preço do orçamento (BR-010): nunca o executor.
+export const PODE_PRECIFICAR_ADICIONAL = [PERFIS.ENCARREGADO, PERFIS.ADMINISTRADOR_TECNICO]
+// Decidir item do adicional (aprovar/rejeitar, meio estruturado) — rpc_decidir_item_os_adicional.
+export const PODE_DECIDIR_ITEM_ADICIONAL = [PERFIS.ENCARREGADO, PERFIS.SUPORTE_ADMINISTRATIVO, PERFIS.ADMINISTRADOR_TECNICO]
+// Cancelar formalmente um adicional ainda aguardando aprovação — rpc_cancelar_os_adicional.
+export const PODE_CANCELAR_ADICIONAL = [PERFIS.ENCARREGADO, PERFIS.ADMINISTRADOR_TECNICO]
+// Marcar execução de item aprovado do adicional (mão de obra) — rpc_marcar_item_os_adicional_execucao.
+export const PODE_MARCAR_EXECUCAO_ADICIONAL = [PERFIS.EXECUTOR, PERFIS.ENCARREGADO, PERFIS.ADMINISTRADOR_TECNICO]
+
 export function temPerfil(perfilAtual, listaPermitida) {
   return !!perfilAtual && listaPermitida.includes(perfilAtual)
 }

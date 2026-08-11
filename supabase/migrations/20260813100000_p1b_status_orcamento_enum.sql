@@ -1,0 +1,13 @@
+-- ETAPA 5 (P1-B) — pré-requisito para APR-002/OS-002: novo valor de enum
+-- para o status do orçamento quando ele tem itens aprovados E itens
+-- rejeitados ao mesmo tempo (aprovação parcial por item).
+--
+-- Isolado na própria migration, sem nenhum outro comando: ALTER TYPE ...
+-- ADD VALUE não pode ser usado na MESMA transação em que o valor novo é lido
+-- (restrição do Postgres desde sempre, mesmo em versões que permitem rodar
+-- o ADD VALUE dentro de bloco transacional). O `supabase db push` aplica
+-- cada arquivo de migration como sua própria transação, então a próxima
+-- migration (que já usa 'parcialmente_aprovado' dentro de funções) só roda
+-- depois que esta commitou — sem risco do erro
+-- "unsafe use of new value of enum type".
+alter type status_orcamento add value if not exists 'parcialmente_aprovado';

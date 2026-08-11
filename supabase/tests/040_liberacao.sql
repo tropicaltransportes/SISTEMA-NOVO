@@ -20,6 +20,16 @@ begin
     returning id into v_orc;
   insert into orcamento_itens (orcamento_id, descricao, quantidade, valor_unitario) values (v_orc, 'PGTAP Serviço ' || p_sufixo, 1, 500);
   update orcamentos set status = 'enviado', autorizado_por_nome = 'Teste', comprovante_path = 'x' where id = v_orc;
+  -- ETAPA 5 (P1-B)/APR-002: aprovação passou a ser por ITEM — o fixture
+  -- bypassava a máquina de estados direto no orçamento (comentário original
+  -- acima), então precisa também aprovar o(s) item(ns) para que
+  -- rpc_criar_os (que agora exige ao menos 1 item com status_aprovacao =
+  -- 'aprovado') aceite converter. Este teste (LIB-00x) não é sobre
+  -- aprovação — só precisa de um orçamento 100% aprovado como fixture.
+  update orcamento_itens
+    set status_aprovacao = 'aprovado', meio_aprovacao = 'sistema',
+        autorizado_por_nome = 'Teste', autorizado_em = now(), registrado_por = auth.uid()
+    where orcamento_id = v_orc;
   update orcamentos set status = 'aprovado' where id = v_orc;
   v_os := rpc_criar_os('77777777-7777-7777-7777-777777777777'::uuid, 'externa'::tipo_os, v_orc);
   -- força a OS direto para 'concluida' via update de teste (bypassa a máquina de estados só para montar o fixture)

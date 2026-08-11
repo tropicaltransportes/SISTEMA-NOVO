@@ -39,24 +39,101 @@ O orçamento pode conter peças, serviços, quantidades, preços, descontos e co
 O orçamento pode ser enviado em PDF ou impresso. O documento emitido deve representar a versão vigente naquele momento.
 
 ## BR-005 — Aprovação de orçamento
-**Status:** DEFINIDA
+**Status:** DEFINIDA (registro estruturado do meio implementado na ETAPA 5/P1-B — APR-004/005/006)
 
 A aprovação pode ser registrada por botão/sistema, e-mail ou autorização verbal documentada. O ERP deve registrar responsável, data/hora e meio da aprovação.
 
+**Implementação (ETAPA 5, item 3, APR-004/005/006):** cada item de
+orçamento (`orcamento_itens`) e cada item de adicional
+(`os_adicional_itens`) ganhou os campos `status_aprovacao`,
+`meio_aprovacao` (`sistema`/`email`/`verbal_documentado`),
+`autorizado_por_nome` (cliente/responsável — nunca confundido com quem
+registrou), `autorizado_em`, `registrado_por` (usuário interno,
+`auth.uid()`), `comprovante_path` e `observacao`. O meio nunca é inferido
+(nome de arquivo, texto livre) — é sempre um valor estruturado explícito,
+validado em `rpc_decidir_item_orcamento`/`rpc_decidir_item_os_adicional`:
+`email` exige `comprovante_path` validado contra o Storage real
+(`storage_objeto_existe`, reuso de DOC-005/P1-A); `verbal_documentado`
+exige `observacao` com no mínimo 10 caracteres, além do nome de quem
+autorizou (sempre obrigatório, qualquer meio). Ver
+`supabase/migrations/20260813100100_p1b_apr002_aprovacao_item.sql` e
+`20260813100200_p1b_adc_tabelas.sql`.
+
 ## BR-006 — Aprovação parcial
-**Status:** DEFINIDA
+**Status:** DEFINIDA (implementada na ETAPA 5/P1-B — APR-002/OS-002)
 
 O cliente pode aprovar apenas parte do orçamento. Somente itens aprovados podem ser executados/faturados sem nova autorização.
 
+**Implementação (ETAPA 5, item 1/2, APR-002):** aprovação por item inteiro
+(não fração de quantidade dentro do mesmo item — nenhuma outra regra desta
+matriz determina o contrário, então mantida a leitura literal da
+instrução). Cada `orcamento_itens`/`os_adicional_itens` tem
+`status_aprovacao in ('pendente', 'aprovado', 'rejeitado')`. Item rejeitado
+nunca é apagado (BR-026) — permanece no histórico, consultável, com sua
+decisão preservada.
+
+**Máquina de estados do orçamento** (`status_orcamento`, valor novo
+`parcialmente_aprovado` — BR-035 estendida):
+
+```
+rascunho -> enviado -> { decisão item a item }
+  todos os itens decididos e 100% aprovados      -> aprovado
+  todos os itens decididos e 100% rejeitados      -> rejeitado
+  todos os itens decididos, mistura aprovado+rejeitado -> parcialmente_aprovado
+  algum item ainda sem decisão                    -> continua 'enviado'
+     (aprovação NÃO é considerada concluída)
+```
+
+Recalculada de forma determinística por `recalcular_status_orcamento()`
+toda vez que um item é decidido (`rpc_decidir_item_orcamento`). A mesma
+máquina de estados se aplica a `os_adicionais.status`
+(`aguardando_aprovacao` no lugar de `enviado`/pendente inicial —
+`recalcular_status_os_adicional()`), com os mesmos 4 resultados possíveis.
+`rpc_aprovar_orcamento`/`rpc_rejeitar_orcamento` (RPCs antigas, Fase 2)
+viraram wrappers de conveniência que decidem TODOS os itens pendentes de
+uma vez (meio `sistema`) — preservam a assinatura antiga (nenhum chamador
+existente quebra), mas agora escrevem no nível do item, não mais só no
+orçamento.
+
+**Alteração após decisão (item 11/APR-008/009/ADC-005):** item já decidido
+é imutável — não existe RPC de UPDATE de item decidido, e a RLS não
+concede UPDATE direto a `orcamento_itens`/`os_adicional_itens` fora da
+janela de rascunho (orçamento) ou nunca (adicional, só INSERT via RPC).
+Tentativa de alteração direta é bloqueada (RLS filtra 0 linhas ou 403,
+conforme o caso — confirmado por execução real). Alterar valor/quantidade
+depois de decidido exige: para orçamento, `rpc_criar_versao_orcamento`
+(nova versão, V2+, já existia desde a Fase 2); para adicional, um adicional
+NOVO (`rpc_criar_os_adicional`) — a inclusão de item
+(`rpc_incluir_item_os_adicional`) só é aceita enquanto NENHUM item do
+adicional atual já foi decidido, forçando um novo ciclo de aprovação em vez
+de reescrever histórico.
+
+Ver `supabase/migrations/20260813100000_p1b_status_orcamento_enum.sql`,
+`20260813100100_p1b_apr002_aprovacao_item.sql`,
+`20260813100200_p1b_adc_tabelas.sql`,
+`20260813100500_p1b_fix_idempotencia_decisao_item.sql` e
+`docs/testing/TEST_REPORT_P1B.md`.
+
 ## BR-007 — Alteração após aprovação
-**Status:** DEFINIDA
+**Status:** DEFINIDA (implementada na ETAPA 5/P1-B — ver BR-006, APR-008/009/ADC-005)
 
 Mudanças de valor, quantidade, peça ou serviço em item já aprovado devem gerar nova versão ou nova aprovação. O histórico anterior não pode ser sobrescrito.
 
 ## BR-008 — Conversão para OS
-**Status:** DEFINIDA (regra de reconversão pós-cancelamento formalizada na ETAPA 4/P1-A)
+**Status:** DEFINIDA (regra de reconversão pós-cancelamento formalizada na ETAPA 4/P1-A; conversão parcial na ETAPA 5/P1-B — OS-002)
 
 Somente itens aprovados podem entrar na OS. O mesmo orçamento não pode gerar OS duplicada de forma acidental.
+
+**Implementação (ETAPA 5, item 4, OS-002):** `rpc_criar_os` passou a
+aceitar orçamento `aprovado` OU `parcialmente_aprovado` (antes só
+`aprovado`), exigindo ao menos 1 item com `status_aprovacao = 'aprovado'`.
+A OS mantém vínculo com o orçamento INTEIRO (`orcamento_id`, sem duplicar
+conceito) — a elegibilidade real para execução/baixa/conclusão/cobrança é
+sempre resolvida item a item nas RPCs downstream (`rpc_baixar_peca_os`,
+`rpc_marcar_item_orcamento_execucao`, `rpc_concluir_os`,
+`rpc_criar_cobranca`), nunca no momento da conversão. Item rejeitado
+permanece no orçamento (histórico), nunca é copiado/movido para a OS, nunca
+é executável nem cobrável.
 
 **Regra de reconversão pós-cancelamento (ETAPA 4, decisão de negócio #1,
 resolve o PENDENTE_DECISÃO registrado em
@@ -80,9 +157,38 @@ resolve o PENDENTE_DECISÃO registrado em
   e `docs/testing/TEST_REPORT_P1A.md`.
 
 ## BR-009 — Serviços adicionais
-**Status:** DEFINIDA
+**Status:** DEFINIDA (implementada na ETAPA 5/P1-B — ADC-001..008)
 
 Serviços/peças identificados após o início da OS devem ser registrados como adicionais e submetidos a aprovação antes da execução, salvo regra excepcional explicitamente autorizada e auditada.
+
+**Implementação (ETAPA 5, item 5/6):** entidade nova, separada do
+orçamento original — nunca altera o orçamento já aprovado (não é o mesmo
+conceito, não reaproveita `orcamento_itens`). `os_adicionais` (cabeçalho:
+`os_id`, `numero` sequencial por OS formatado `AD-00N`, `motivo`, `status`)
++ `os_adicional_itens` (peça opcional, descrição, quantidade, valor
+unitário, valor total gerado, justificativa, mesmos campos de decisão
+estruturada de BR-005/BR-006, `execucao_status`).
+
+Fluxo: OS em execução → necessidade identificada
+(`rpc_criar_os_adicional`, motivo apenas) → item(ns) incluído(s) com preço
+(`rpc_incluir_item_os_adicional`) → decisão por item
+(`rpc_decidir_item_os_adicional`, mesma máquina de estados de BR-006) →
+item aprovado fica executável/cobrável; item rejeitado/pendente nunca.
+`rpc_cancelar_os_adicional` encerra formalmente um adicional ainda
+`aguardando_aprovacao` (ex.: identificado por engano) — rejeita os itens
+ainda pendentes com motivo obrigatório, auditado (nunca apaga).
+
+**Split de responsabilidade (item 13 — RBAC):** identificar necessidade
+(executor/encarregado/administrador_tecnico) ≠ precificar/incluir item
+(encarregado/administrador_tecnico, mesma autoridade de preço de BR-010) ≠
+decidir item (encarregado/suporte_administrativo/administrador_tecnico,
+nunca executor). Backend é a autoridade final em todos os três — RLS
+revoga INSERT/UPDATE/DELETE direto de `authenticated` nas duas tabelas
+(escrita só via as RPCs acima).
+
+Ver `supabase/migrations/20260813100200_p1b_adc_tabelas.sql`,
+`20260813100300_p1b_estoque_execucao_adicional.sql`,
+`20260813100600_p1b_cancelar_adicional.sql`.
 
 ## BR-010 — Preço
 **Status:** DEFINIDA
@@ -100,9 +206,21 @@ Descontos podem existir. Devem possuir valor válido, usuário responsável e ra
 Cliente externo pode ter parcelamento. O total das parcelas deve reconciliar com o valor negociado.
 
 ## BR-013 — Recebimento financeiro
-**Status:** DEFINIDA
+**Status:** DEFINIDA (fórmula de cobrança estendida na ETAPA 5/P1-B — item 10)
 
 A confirmação financeira do recebimento ocorre pelo financeiro fora do ERP. O ERP pode registrar a confirmação/status, mas não deve presumir pagamento sem informação autorizada.
+
+**Implementação (ETAPA 5, item 10):** `rpc_criar_cobranca` deixou de somar
+`orcamentos.valor_total` (todos os itens, aprovados ou não) e passou a
+somar: itens do orçamento original com `status_aprovacao = 'aprovado'` +
+itens de adicionais (de qualquer `os_adicionais` da mesma OS) com
+`status_aprovacao = 'aprovado'` + acréscimos pós-aprovação já existentes
+(`orcamento_acrescimos`, mecanismo independente, fora do escopo desta
+etapa). Item rejeitado, pendente, ou de adicional não aprovado nunca entra
+na cobrança — confirmado por execução real (E2E principal: orçamento
+R$1.000, aprovado R$700, adicional R$400, aprovado do adicional R$250 →
+cobrança final R$950.00 exatos). Ver
+`supabase/migrations/20260813100400_p1b_con002_e_financeiro.sql`.
 
 ## BR-014 — Estoque na OS
 **Status:** DEFINIDA (ATUALIZADA na ETAPA 4/P1-A — ver decisão técnica abaixo)
@@ -146,6 +264,16 @@ peça:
 
 Ver `supabase/migrations/20260812093000_p1a_est004_baixa_vinculada_item.sql`
 e `docs/testing/TEST_REPORT_P1A.md` para evidência de execução real.
+
+**Extensão a adicionais (ETAPA 5, item 8, P1-B):** `estoque_movimentos`
+ganhou a coluna `os_adicional_item_id` (peça original → aponta
+`orcamento_item_id`; peça de adicional → aponta `os_adicional_item_id`;
+nunca os dois ao mesmo tempo — `check` de integridade dedicado). Mesmo
+padrão de vínculo/bloqueio de EST-004 (item aprovado obrigatório, peça tem
+que bater, cota própria por item+OS, nunca saldo negativo) aplicado ao
+ramo de adicional em `rpc_baixar_peca_os`. Ver
+`supabase/migrations/20260813100200_p1b_adc_tabelas.sql` e
+`20260813100300_p1b_estoque_execucao_adicional.sql`.
 
 ## BR-015 — Estoque insuficiente
 **Status:** DEFINIDA
@@ -194,6 +322,17 @@ conclusão. Itens de peça são sincronizados automaticamente pela baixa
 (`rpc_baixar_peca_os`); itens de mão de obra (sem peça) exigem marcação
 manual via `rpc_marcar_item_orcamento_execucao`. Ver
 `supabase/migrations/20260812094000_p1a_con002_itens_executados.sql`.
+
+**Extensão (ETAPA 5, item 9, P1-B):** a checagem de `orcamento_itens`
+passou a filtrar por `status_aprovacao = 'aprovado'` (item rejeitado nunca
+bloqueia conclusão — antes não filtrava, o que teria sido uma regressão
+funcional com a chegada de itens rejeitados no mesmo orçamento). `rpc_concluir_os`
+também bloqueia quando: existe item de adicional aprovado com
+`execucao_status in ('pendente', 'parcial')`; OU existe `os_adicionais`
+ainda `aguardando_aprovacao` (decisão do cliente em aberto — não é
+possível concluir a OS "como se estivesse resolvido" com um adicional
+formalmente aberto e ativo). Ver
+`supabase/migrations/20260813100400_p1b_con002_e_financeiro.sql`.
 
 ## BR-022 — Liberação
 **Status:** DEFINIDA
@@ -270,6 +409,18 @@ obrigatório). Leitura restrita a perfis não-executor (mesmo critério do
 módulo financeiro). Ver
 `supabase/migrations/20260812093500_p1a_auditoria.sql`.
 
+**Extensão (ETAPA 5, item 12, P1-B):** eventos novos via
+`registrar_auditoria()` (mesma tabela `auditoria_eventos`, mesma
+imutabilidade — nenhuma policy de escrita nova foi necessária):
+`decisao_item_orcamento`/`decisao_item_adicional` (aprovação/rejeição de
+item, com `valor_anterior`/`valor_novo` incluindo `status_aprovacao` e
+`meio_aprovacao`), `criar_adicional`, `incluir_item_adicional`,
+`cancelar_adicional`/`cancelar_item_adicional_por_cancelamento_cabecalho`,
+`marcar_execucao_item_adicional`. Confirmado por execução real: trilha
+completa do E2E principal consultável (decisão de cada item, criação do
+adicional, decisão de cada item do adicional), sempre com usuário
+(`auth.uid()`) e data/hora.
+
 ## BR-028 — Permissões
 **Status:** DEFINIDA (usuário inativo = bloqueio total, formalizado na ETAPA 4/P1-A)
 
@@ -302,6 +453,19 @@ continua negando mesmo que o frontend fosse contornado. Ver
 por cada RPC/policy do backend. O frontend nunca é a única proteção — é só
 reflexo do que o backend já impõe (confirmado por chamadas diretas à API,
 não só pelo que a interface permite clicar).
+
+**Extensão (ETAPA 5, item 13, P1-B):** novas constantes em
+`permissoes.js` — `PODE_DECIDIR_ITEM_ORCAMENTO`,
+`PODE_IDENTIFICAR_ADICIONAL` (inclui executor), `PODE_PRECIFICAR_ADICIONAL`
+(nunca executor), `PODE_DECIDIR_ITEM_ADICIONAL` (nunca executor),
+`PODE_CANCELAR_ADICIONAL`, `PODE_MARCAR_EXECUCAO_ADICIONAL`. Backend
+continua sendo a autoridade final — cada RPC nova (`rpc_decidir_item_orcamento`,
+`rpc_criar_os_adicional`, `rpc_incluir_item_os_adicional`,
+`rpc_decidir_item_os_adicional`, `rpc_cancelar_os_adicional`,
+`rpc_marcar_item_os_adicional_execucao`) valida perfil via `tem_perfil()`
+independente do frontend, confirmado testando executor tentando decidir
+item (bloqueado, HTTP 400 "Perfil sem permissão") e tentando precificar
+adicional (bloqueado, mesma mensagem) diretamente pela API.
 
 ## BR-029 — Prazo
 **Status:** DEFINIDA
@@ -344,7 +508,7 @@ usavam o mesmo padrão (`idempotency_key`) desde a ETAPA 3.
 Operações simultâneas que disputam o mesmo saldo/registro devem preservar consistência transacional.
 
 ## BR-035 — Estados
-**Status:** PROVISÓRIA
+**Status:** PROVISÓRIA (máquina de estados do orçamento implementada e determinística na ETAPA 5/P1-B — ver BR-006)
 
 Os estados sugeridos para homologação são:
 
@@ -355,6 +519,17 @@ OS:
 `ABERTA -> EM_EXECUCAO -> AGUARDANDO_PECA | AGUARDANDO_APROVACAO | PAUSADA -> SERVICO_CONCLUIDO -> AGUARDANDO_LIBERACAO -> LIBERADA -> ENCERRADA`
 
 A implementação pode usar nomes diferentes, desde que preserve semântica e transições válidas.
+
+**Implementação real do orçamento (ETAPA 5, P1-B):** `status_orcamento`
+(`rascunho`, `enviado`, `aprovado`, `parcialmente_aprovado` — valor novo
+desta etapa, `rejeitado`, `substituido`). Sem estado
+`aguardando_aprovacao` dedicado — `enviado` já cumpre esse papel enquanto
+existir item sem decisão; a transição para `aprovado`/`rejeitado`/`parcialmente_aprovado`
+só acontece quando TODOS os itens têm uma decisão (ver fórmula completa em
+BR-006). Sem estado `convertido_em_os` dedicado — a existência de uma OS
+não cancelada vinculada (`ordens_servico.orcamento_id`, ver BR-008) já é o
+sinal de conversão; o orçamento continua com seu último status de
+aprovação (histórico correto, não sobrescrito).
 
 ## BR-036 — Cliente interno
 **Status:** PENDENTE
