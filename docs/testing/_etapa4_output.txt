@@ -1,0 +1,94 @@
+=== ETAPA 4 — login de cada persona semeada ===
+EXECUTOR: login OK
+ENCARREGADO: login OK
+SUPORTE: login OK
+ADMIN: login OK
+DIRETORIA: login OK
+INATIVO: login OK
+SEMPERFIL: login OK
+AUT-004 (usuário inativo): login acima de INATIVO 'OK' já é evidência — Supabase Auth não checa profiles.ativo.
+'Autenticado sem profile' (SEMPERFIL): login OK também esperado — Auth não depende de profiles.
+
+=== APR-001 / APR-007 — aprovar orçamento e0000000-...-0002 (enviado) ===
+
+--- ANON tenta aprovar (AUT-005, alvo real) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para aprovar orçamento"}
+--- SEM_PROFILE tenta aprovar (regressão do bug NULL — sessão válida, sem perfil) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para aprovar orçamento"}
+--- EXECUTOR tenta aprovar (APR-007/EXE-009 — esperado: bloqueado) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para aprovar orçamento"}(pré-condição p/ cliente externo: registrar autorização do cliente antes de aprovar)
+
+--- SUPORTE registra autorização do cliente em e...0002 ---
+HTTP 204
+
+--- ENCARREGADO aprova de verdade (APR-001 — esperado: sucesso, muda estado real) ---
+HTTP 204
+
+--- ENCARREGADO tenta aprovar de novo (APR-012 — esperado: bloqueado, já aprovado) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Somente orçamentos enviados podem ser aprovados"}
+=== OS-001/PER-001 — criar OS ===
+
+--- EXECUTOR tenta criar OS (PER-001/EXE-008 espírito — esperado: bloqueado) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para criar ordem de serviço"}
+--- SUPORTE tenta criar OS (esperado: bloqueado — não está na lista) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para criar ordem de serviço"}
+--- DIRETORIA tenta criar OS (esperado: bloqueado, só leitura) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para criar ordem de serviço"}
+--- ADMIN cria OS de verdade (OS-001 — esperado: sucesso) ---
+HTTP 200
+"b27bad83-bea3-4102-bcda-fe1db3f6d843"
+=== LIB-004/005/006 — liberar OS f...0004 (concluída, sem cobrança ainda) ===
+
+--- EXECUTOR tenta liberar (LIB-004 — esperado: bloqueado por perfil) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para liberar OS"}
+--- DIRETORIA tenta liberar (PER-004 — esperado: bloqueado por perfil) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para liberar OS"}
+--- SUPORTE tenta liberar (LIB-006/P0-06 — esperado: passa do check de perfil, bloqueado por falta de cobrança) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Condição financeira pendente: parcele, quite a cobrança ou registre o Termo de Ciência de Débito"}
+--- ENCARREGADO tenta liberar (LIB-005 — esperado: passa do check de perfil, bloqueado por falta de cobrança) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Condição financeira pendente: parcele, quite a cobrança ou registre o Termo de Ciência de Débito"}
+=== E2E-005 / LIB-003 — OS f...0005 (concluída, cliente INADIMPLENTE, sem cobrança/termo) ===
+
+--- ADMIN tenta liberar sem cobrança nem termo (LIB-003/E2E-005 — esperado: bloqueado por condição financeira) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"OS externa exige cobrança gerada antes da liberação"}
+=== Financeiro — permissões de rpc_criar_cobranca ===
+
+--- ENCARREGADO tenta gerar cobrança (esperado: bloqueado — não está na lista) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para gerar cobrança"}
+--- EXECUTOR SELECT cobrancas (esperado: [] vazio — RLS current_perfil()<>'executor') ---
+HTTP 200
+[]
+--- DIRETORIA SELECT cobrancas (esperado: retorna linhas — diretoria tem leitura financeira) ---
+HTTP 200
+[{"id":"9b491c50-ceff-43c5-a4f8-64ff882e09fc","valor_total":1500.00}, 
+ {"id":"836b13a6-ef32-4426-b79f-c4ee4c8467c4","valor_total":500.00}, 
+ {"id":"de9866be-942b-4290-a43a-91b8cc1062eb","valor_total":91.80}, 
+ {"id":"73d28cef-2628-4c53-b63c-4dfeb29d7267","valor_total":500.00}, 
+ {"id":"d5d6ff77-57e8-42b2-be7f-e984fa3ebb3d","valor_total":500.00}]
+--- SUPORTE gera cobrança de verdade sobre f...0004 (fluxo real p/ ETAPA 7) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Esta OS já está vinculada a uma cobrança ativa"}
+=== Estoque — baixa por executor (ação permitida) ===
+
+--- EXECUTOR baixa peça d...0001 na OS f...0002 (em_execucao) — ação permitida ao executor, esperado sucesso ---
+HTTP 204
+
+=== AUT-004 real: usuário INATIVO consegue executar ação de executor mesmo assim? ===
+
+--- INATIVO (ativo=false) tenta apontar/baixar peça (esperado hoje: SUCESSO — AUT-004 não estava no escopo P0, achado permanece) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Baixa idêntica já registrada nos últimos segundos para esta OS/peça — possível duplo clique"}
+=== FIM ETAPA 4 ===

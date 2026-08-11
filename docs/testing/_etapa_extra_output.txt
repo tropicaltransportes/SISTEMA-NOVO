@@ -1,0 +1,29 @@
+=== Lote extra: GAR-003/004, PER-002, e tentativas de exclusão física (EST-011/CAD-010/OS-012/AUD-006) ===
+
+--- GAR-003: abrir garantia p/ OS f...0007 (liberada há 100 dias, fora do prazo de 90d) ---
+{"code":"P0001","details":null,"hint":null,"message":"Prazo de garantia (90 dias da liberação) expirado"}
+HTTP 400
+
+--- GAR-004: consultar a garantia aberta no E2E-001 (script anterior) — vínculo com OS original ---
+[{"id":"43ce771f-9c90-4c52-9a0f-57fc134c644f","os_origem_id":"2c07926e-cf6a-4be0-bb31-7fb9206ec0cf","status":"liberada"}, 
+ {"id":"0c2ec7ad-0f4e-4729-8dcf-e9b3d2a8749a","os_origem_id":"a671fb05-3cd7-4cf8-a6f8-c66e8bd288a1","status":"liberada"}, 
+ {"id":"22cb2954-b894-4264-849e-e3119022d501","os_origem_id":"ef200325-5164-4424-86e8-85c4609fd023","status":"aberta"}]
+HTTP 200
+
+--- PER-002: EXECUTOR tenta cancelar a OS f...0001 (aberta) — esperado: bloqueado ---
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para transicionar OS"}
+HTTP 400
+
+--- EST-011: ADMIN tenta excluir fisicamente um estoque_movimento (esperado: bloqueado por RLS, sem policy delete) ---
+{"code":"42501","details":null,"hint":"Grant the required privileges to the current role with: GRANT DELETE ON public.estoque_movimentos TO authenticated;","message":"permission denied for table estoque_movimentos"}
+HTTP 403
+
+--- CAD-010: ADMIN tenta excluir fisicamente um cliente com histórico (esperado: bloqueado — sem policy delete) ---
+
+HTTP 204
+
+--- OS-012: ADMIN tenta excluir fisicamente uma OS encerrada (esperado: bloqueado — revoke insert/update, sem delete) ---
+
+HTTP 204
+
+=== FIM LOTE EXTRA ===

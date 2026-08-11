@@ -1,0 +1,86 @@
+=== 1) saldo=10 (peça d...0005) -> baixar 2 -> confirmar saldo=8 ===
+
+--- saldo atual: antes ---
+[{"sku":"QA_PECA_ESTOQUE_10","saldo_atual":10.000}]
+
+--- EXECUTOR baixa 2 unidades de d...0005 na OS f...0009 (em_execucao) ---
+HTTP 204
+
+--- saldo atual: depois (esperado: 8) ---
+[{"sku":"QA_PECA_ESTOQUE_10","saldo_atual":8.000}]
+
+--- estoque_movimentos: após baixa (origem/usuário/data devem estar presentes) ---
+[{"tipo":"saida","origem_tipo":"os","origem_id":"f0000000-0000-0000-0000-000000000009","quantidade":2.000,"criado_por":"a0000000-0000-0000-0000-000000000001","criado_em":"2026-08-11T13:18:00.152733+00:00","estornado_de":null}, 
+ {"tipo":"entrada","origem_tipo":"nf_entrada","origem_id":"d0000000-0000-0000-0000-000000000005","quantidade":10.000,"criado_por":"a0000000-0000-0000-0000-000000000003","criado_em":"2026-08-10T19:51:13.738376+00:00","estornado_de":null}]
+
+=== 2) saldo=8 -> tentar baixar 20 (> saldo) -> BLOQUEADO, saldo não muda ===
+
+--- EXECUTOR tenta baixar 20 (EST-007 — esperado: bloqueado) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Estoque insuficiente para a peça d0000000-0000-0000-0000-000000000005 (saldo 8.000 , solicitado 20)"}
+--- saldo atual: depois da tentativa bloqueada (esperado: continua 8) ---
+[{"sku":"QA_PECA_ESTOQUE_10","saldo_atual":8.000}]
+
+=== 3) Baixa duplicada / retry — repetir a MESMA baixa (2 unidades) imediatamente ===
+
+--- EXECUTOR repete a baixa de 2 unidades (EST-009/P0-04 — esperado: bloqueado por dedup de 5s) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Baixa idêntica já registrada nos últimos segundos para esta OS/peça — possível duplo clique"}
+--- saldo atual: depois (esperado: continua 8, não duplicou) ---
+[{"sku":"QA_PECA_ESTOQUE_10","saldo_atual":8.000}]
+
+=== 4) Estorno da baixa do passo 1 (EST-010/P0-05 — RPC nova rpc_estornar_saida_estoque) ===
+movimento a estornar: 631b7664-9dfa-4863-a039-128312934e46
+
+--- SUPORTE estorna o movimento de saída ---
+HTTP 204
+
+--- saldo atual: depois do estorno (esperado: volta a 10) ---
+[{"sku":"QA_PECA_ESTOQUE_10","saldo_atual":10.000}]
+
+--- estoque_movimentos: após estorno (deve aparecer estorno_saida com estornado_de preenchido) ---
+[{"tipo":"estorno_saida","origem_tipo":"os","origem_id":"f0000000-0000-0000-0000-000000000009","quantidade":2.000,"criado_por":"a0000000-0000-0000-0000-000000000003","criado_em":"2026-08-11T13:18:03.026816+00:00","estornado_de":"631b7664-9dfa-4863-a039-128312934e46"}, 
+ {"tipo":"saida","origem_tipo":"os","origem_id":"f0000000-0000-0000-0000-000000000009","quantidade":2.000,"criado_por":"a0000000-0000-0000-0000-000000000001","criado_em":"2026-08-11T13:18:00.152733+00:00","estornado_de":null}, 
+ {"tipo":"entrada","origem_tipo":"nf_entrada","origem_id":"d0000000-0000-0000-0000-000000000005","quantidade":10.000,"criado_por":"a0000000-0000-0000-0000-000000000003","criado_em":"2026-08-10T19:51:13.738376+00:00","estornado_de":null}]
+
+--- SUPORTE tenta estornar o MESMO movimento de novo (esperado: bloqueado, já estornado) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Movimento 631b7664-9dfa-4863-a039-128312934e46 já foi estornado anteriormente"}
+=== 5) Cancelamento de OS com estoque já baixado (OS-010/P0-05) — OS f...0008, peça d...0004 ===
+
+--- saldo atual: peça d...0004 ANTES de cancelar f...0008 (esperado: 8, já tinha 2 baixadas no seed) ---
+[{"sku":"QA_PECA_CONCORRENCIA","saldo_atual":8.000}]
+
+--- ADMIN cancela a OS f...0008 (em_diagnostico -> cancelada) ---
+HTTP 204
+
+--- saldo atual: peça d...0004 DEPOIS de cancelar (esperado: volta a 10 — estorno automático) ---
+[{"sku":"QA_PECA_CONCORRENCIA","saldo_atual":10.000}]
+
+--- estoque_movimentos: após cancelamento (deve ter estorno_saida automático) ---
+[{"tipo":"estorno_saida","origem_tipo":"os","origem_id":"f0000000-0000-0000-0000-000000000008","quantidade":2.000,"criado_por":"a0000000-0000-0000-0000-000000000004","criado_em":"2026-08-11T13:18:05.083063+00:00","estornado_de":"0e845f50-5636-469d-a4bc-d1d8da6fd8c1"}, 
+ {"tipo":"entrada","origem_tipo":"nf_entrada","origem_id":"d0000000-0000-0000-0000-000000000004","quantidade":10.000,"criado_por":"a0000000-0000-0000-0000-000000000003","criado_em":"2026-08-10T19:51:13.738376+00:00","estornado_de":null}, 
+ {"tipo":"saida","origem_tipo":"os","origem_id":"f0000000-0000-0000-0000-000000000008","quantidade":2.000,"criado_por":"a0000000-0000-0000-0000-000000000001","criado_em":"2026-08-10T19:51:13.738376+00:00","estornado_de":null}]
+
+=== 6) Venda avulsa real (EST-006) ===
+
+--- SUPORTE registra venda avulsa de 3un de d...0001 p/ cliente b...0001 ---
+HTTP 200
+"8d57df9f-9ccf-418d-8673-f88648b55375"
+=== 7) Concorrência (EST-013/EST-016) — duas baixas simultâneas com quantidades DIFERENTES (5 e 6, soma 11 > saldo 8) em d...0005 ===
+    Quantidades diferentes de propósito, p/ isolar o mecanismo de concorrência (FOR UPDATE)
+    do guard de dedup do P0-04 (que só bloqueia baixa IDÊNTICA).
+
+--- saldo atual: d...0005 antes da concorrência (esperado: 8) ---
+[{"sku":"QA_PECA_ESTOQUE_10","saldo_atual":10.000}]
+conc2 (qtd 6) HTTP 204
+conc1 (qtd 5) HTTP 400
+resultado conc1 (qtd 5):
+{"code":"P0001","details":null,"hint":null,"message":"Estoque insuficiente para a peça d0000000-0000-0000-0000-000000000005 (saldo 4.000 , solicitado 5)"}
+resultado conc2 (qtd 6):
+
+
+--- saldo atual: d...0005 depois da concorrência (esperado: 3 [se a de 5 passou] ou 2 [se a de 6 passou] — nunca negativo, só UMA passa) ---
+[{"sku":"QA_PECA_ESTOQUE_10","saldo_atual":4.000}]
+
+=== FIM ETAPA 6 ===

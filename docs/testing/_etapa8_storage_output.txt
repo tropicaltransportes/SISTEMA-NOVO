@@ -1,0 +1,28 @@
+=== ETAPA 8 — Storage bucket 'comprovantes', DOC-006/P0-02 ===
+
+--- upload real como SUPORTE (deve funcionar — tem policy de insert) ---
+HTTP 200
+
+--- EXECUTOR tenta ler o arquivo (DOC-006/P0-02 — esperado: BLOQUEADO após o fix) ---
+HTTP 400
+
+
+--- SUPORTE tenta ler o próprio arquivo (esperado: permitido) ---
+HTTP 200
+
+
+--- ENCARREGADO tenta ler (esperado: permitido — não é executor) ---
+HTTP 200
+
+
+--- DIRETORIA tenta ler (esperado: permitido — não é executor) ---
+HTTP 200
+
+
+--- ANON tenta ler sem sessão (esperado: bloqueado — já era antes do fix) ---
+HTTP 400
+
+
+--- EXECUTOR tenta UPLOAD (deve continuar bloqueado — não muda com P0-02) ---
+HTTP 400
+=== FIM ETAPA 8 ===

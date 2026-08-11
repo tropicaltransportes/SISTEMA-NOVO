@@ -8,6 +8,15 @@
 
 create schema if not exists tests;
 
+-- "authenticated"/"anon" precisam de USAGE no schema (e EXECUTE nas funções)
+-- pra chamar tests.* depois que um teste troca de papel via
+-- tests.autenticar_como()/autenticar_como_anon() — sem isso, qualquer
+-- chamada a uma função tests.* depois da troca de papel falha com
+-- "permission denied for schema tests".
+grant usage on schema tests to authenticated, anon;
+grant execute on all functions in schema tests to authenticated, anon;
+alter default privileges in schema tests grant execute on functions to authenticated, anon;
+
 -- Cria um usuário de teste em auth.users + profiles com o perfil desejado,
 -- retornando o id gerado.
 create or replace function tests.criar_usuario_teste(p_perfil perfil_usuario, p_nome text default 'Usuário Teste')

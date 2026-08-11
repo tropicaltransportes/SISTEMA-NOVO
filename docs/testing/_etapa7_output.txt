@@ -1,0 +1,118 @@
+############################################
+# E2E-001 — cliente externo normal, fluxo completo DE VERDADE DESDE O ORÇAMENTO
+# (orçamentos aprovados do seed já estão todos vinculados a uma OS — criando um
+#  novo, mais fiel ao fluxo real: orçar -> enviar -> autorizar -> aprovar -> converter)
+# reusa cliente b...0001/veículo c...0001 (externo, já existentes no seed)
+############################################
+
+--- 0a) ENCARREGADO cria orçamento rascunho ---
+HTTP 201
+[{"id":"ce0a279c-9294-4657-a736-93dfab7ad409","solicitacao_id":null,"veiculo_id":"c0000000-0000-0000-0000-000000000001","cliente_id":"b0000000-0000-0000-0000-000000000001","orcamento_raiz_id":null,"versao":1,"status":"rascunho","valor_total":0.00,"autorizado_por_nome":null,"autorizado_em":null,"comprovante_path":null,"criado_por":"a0000000-0000-0000-0000-000000000002","criado_em":"2026-08-11T13:22:09.353422+00:00"}]
+ORC_ID=ce0a279c-9294-4657-a736-93dfab7ad409
+
+--- 0b) ENCARREGADO adiciona item ao orçamento (peça d...0005, 2un x R$100) ---
+HTTP 201
+[{"id":"d70165ae-98d9-4193-a77d-440e914f6cdf","orcamento_id":"ce0a279c-9294-4657-a736-93dfab7ad409","peca_id":"d0000000-0000-0000-0000-000000000005","descricao":"PGTAP Servico E2E-001","quantidade":2.000,"valor_unitario":100.00,"valor_total":200.00}]
+
+--- 0c) ENCARREGADO envia o orçamento ---
+HTTP 204
+
+
+--- 0d) SUPORTE registra autorização do cliente externo ---
+HTTP 204
+
+
+--- 0e) ENCARREGADO aprova o orçamento ---
+HTTP 204
+
+
+--- 1) ENCARREGADO converte orçamento aprovado em OS externa ---
+HTTP 200
+"ef200325-5164-4424-86e8-85c4609fd023"
+OS_ID=ef200325-5164-4424-86e8-85c4609fd023
+
+--- 1b) tentar reconverter o MESMO orçamento (OS-004/P0-03 — esperado: bloqueado) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Este orçamento já foi convertido em uma OS ativa"}
+
+--- 2) ENCARREGADO define checklist técnico ---
+HTTP 204
+
+
+--- 3) ENCARREGADO inicia diagnóstico (aberta -> em_diagnostico) ---
+HTTP 204
+
+
+--- 4) ENCARREGADO inicia execução (em_diagnostico -> em_execucao) ---
+HTTP 204
+
+
+--- 5a) EXECUTOR insere apontamento ---
+HTTP 201
+[{"id":"f17726e9-d94d-45de-9125-eb5a1885e043","os_id":"ef200325-5164-4424-86e8-85c4609fd023","usuario_id":"a0000000-0000-0000-0000-000000000001","etapa":"execucao","inicio":"2026-08-11T13:22:13+00:00","fim":null,"observacao":null}]
+
+--- 5b) EXECUTOR baixa 2un da peça d...0005 vinculada ao orçamento aprovado ---
+HTTP 204
+
+
+--- 6) ENCARREGADO envia p/ teste (em_execucao -> aguardando_teste) ---
+HTTP 204
+
+
+--- 7) responde item obrigatório do checklist (ok=true) ---
+HTTP 201
+[{"id":"36d82217-e8de-400b-973b-b00804ca0368","os_id":"ef200325-5164-4424-86e8-85c4609fd023","template_item_id":"20000000-0000-0000-0000-000000000011","ok":true,"respondido_por":"a0000000-0000-0000-0000-000000000001","respondido_em":"2026-08-11T13:22:14+00:00"}]
+
+--- 8) ENCARREGADO conclui a OS (checklist completo) ---
+HTTP 204
+
+
+--- 9) SUPORTE gera cobrança sobre a OS concluída ---
+HTTP 200
+"29ff5516-9a1f-4cec-b106-12923e203d5f"
+COB_ID=29ff5516-9a1f-4cec-b106-12923e203d5f
+
+--- valor_total real da cobrança (evita hardcode) ---
+HTTP 200
+[{"valor_total":200.00}]
+VALOR_TOTAL=200.0
+
+--- 10) SUPORTE parcela em 1x à vista ---
+HTTP 204
+
+
+--- 11) busca id da parcela criada ---
+HTTP 200
+[{"id":"905854d5-ec91-4b56-a95d-9c72a0cb78c9"}]
+PARCELA_ID=905854d5-ec91-4b56-a95d-9c72a0cb78c9
+
+--- 12) SUPORTE registra pagamento total (200.0) ---
+HTTP 204
+
+
+--- 13) ENCARREGADO libera a OS (cobrança quitada — deve funcionar) ---
+HTTP 204
+
+
+--- E2E-001: estado final da OS (esperado: liberada, data_liberacao preenchida) ---
+HTTP 200
+[{"status":"liberada","data_liberacao":"2026-08-11T13:22:20.064068+00:00","tipo":"externa"}]
+
+--- 14) GAR — ENCARREGADO abre garantia a partir da OS recém-liberada (dentro do prazo) ---
+HTTP 200
+"22cb2954-b894-4264-849e-e3119022d501"
+
+############################################
+# E2E-007 — múltiplos executores na mesma OS (usa a mesma OS_ID acima)
+############################################
+
+--- 2º executor aponta observação na mesma OS ---
+HTTP 201
+[{"id":"0cf4a087-957b-4217-b29c-28b777eb4047","os_id":"ef200325-5164-4424-86e8-85c4609fd023","usuario_id":"a0000000-0000-0000-0000-000000000002","etapa":"revisao","inicio":"2026-08-11T13:22:21+00:00","fim":null,"observacao":"PGTAP segundo executor"}]
+
+--- os_executores da OS (esperado: 2 linhas, um por usuário) ---
+HTTP 200
+[{"usuario_id":"a0000000-0000-0000-0000-000000000001","etapa":"execucao","observacao":null}, 
+ {"usuario_id":"a0000000-0000-0000-0000-000000000002","etapa":"revisao","observacao":"PGTAP segundo executor"}]
+
+=== FIM ETAPA 7 ===
