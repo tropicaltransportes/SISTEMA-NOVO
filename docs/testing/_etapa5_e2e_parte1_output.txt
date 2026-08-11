@@ -1,0 +1,317 @@
+############################################
+# SETUP: cliente/veiculo/pecas exclusivos _p1b + NF de entrada
+############################################
+
+--- cria cliente externo _p1b ---
+HTTP 201
+[{"id":"b3b448e2-7c38-42f9-b7b9-1bb6631009f1","tipo":"externo","nome":"TESTE_P1B_Cliente_E2E","documento":"90000000000199","telefone":"(11) 99999-0000","email":"p1b@teste.qa","deleted_at":null}]
+
+--- cria veiculo _p1b ---
+HTTP 201
+[{"id":"3a6e3eca-430d-4c7a-a949-98d6a23332de","cliente_id":"b3b448e2-7c38-42f9-b7b9-1bb6631009f1","placa":"P1B0001","prefixo":null,"modelo":"TESTE_P1B","ano":null,"deleted_at":null,"criado_em":"2026-08-11T16:24:40.060341+00:00"}]
+CLIENTE_ID=b3b448e2-7c38-42f9-b7b9-1bb6631009f1 VEICULO_ID=3a6e3eca-430d-4c7a-a949-98d6a23332de
+
+--- peca A (item original aprovado) ---
+HTTP 201
+[{"id":"38c546ee-a291-438e-a706-c18a9c812d56","sku":"QA_PECA_P1B_A","descricao":"TESTE_P1B_Peca_A","unidade":"UN","saldo_atual":0.000,"custo_medio":10.0000,"estoque_minimo":1.000,"deleted_at":null,"criado_em":"2026-08-11T16:24:40.615384+00:00"}]
+
+--- peca AD1 (item adicional aprovado) ---
+HTTP 201
+[{"id":"c0e78bc6-040e-4157-8acb-7fcd954931b0","sku":"QA_PECA_P1B_AD1","descricao":"TESTE_P1B_Peca_AD1","unidade":"UN","saldo_atual":0.000,"custo_medio":10.0000,"estoque_minimo":1.000,"deleted_at":null,"criado_em":"2026-08-11T16:24:41.143202+00:00"}]
+
+--- NF rascunho ---
+HTTP 201
+[{"id":"590a0f55-e676-48c8-8fdd-fcb676f83982","numero":"NF-P1B-E2E","fornecedor":"TESTE_Fornecedor_P1B","status":"rascunho","data_emissao":"2026-08-13","criado_por":"a0000000-0000-0000-0000-000000000003","criado_em":"2026-08-11T16:24:41.671933+00:00"}]
+
+--- item NF peca A (5un) ---
+HTTP 201
+[{"id":"58c30646-a6cb-479d-bd86-5c73f6b3ec4a","nf_id":"590a0f55-e676-48c8-8fdd-fcb676f83982","peca_id":"38c546ee-a291-438e-a706-c18a9c812d56","quantidade":5.000,"valor_unitario":10.0000}]
+
+--- item NF peca AD1 (5un) ---
+HTTP 201
+[{"id":"26046b2a-c46a-42c2-b66d-d4728db12f5c","nf_id":"590a0f55-e676-48c8-8fdd-fcb676f83982","peca_id":"c0e78bc6-040e-4157-8acb-7fcd954931b0","quantidade":5.000,"valor_unitario":10.0000}]
+
+--- confirma NF ---
+HTTP 204
+
+
+############################################
+# E2E-002/APR-002: orcamento R$1000 (item A peca R$700 + item B mao de obra R$300)
+############################################
+
+--- cria orcamento rascunho ---
+HTTP 201
+[{"id":"a7d51291-01c1-4f3b-966d-5325838e320e","solicitacao_id":null,"veiculo_id":"3a6e3eca-430d-4c7a-a949-98d6a23332de","cliente_id":"b3b448e2-7c38-42f9-b7b9-1bb6631009f1","orcamento_raiz_id":null,"versao":1,"status":"rascunho","valor_total":0.00,"autorizado_por_nome":null,"autorizado_em":null,"comprovante_path":null,"criado_por":"a0000000-0000-0000-0000-000000000002","criado_em":"2026-08-11T16:24:43.543745+00:00","client_request_id":null}]
+
+--- item A: peca qtd1 R$700 (sera APROVADO) ---
+HTTP 201
+[{"id":"6fc367f0-8476-4309-b539-f69f27237a46","orcamento_id":"a7d51291-01c1-4f3b-966d-5325838e320e","peca_id":"38c546ee-a291-438e-a706-c18a9c812d56","descricao":"TESTE Item A peca","quantidade":1.000,"valor_unitario":700.00,"valor_total":700.00,"execucao_status":"pendente","status_aprovacao":"pendente","meio_aprovacao":null,"autorizado_por_nome":null,"autorizado_em":null,"registrado_por":null,"comprovante_path":null,"observacao":null}]
+
+--- item B: mao de obra R$300 (sera REJEITADO) ---
+HTTP 201
+[{"id":"0ce48497-4a10-4abd-85fa-29dabd41a58b","orcamento_id":"a7d51291-01c1-4f3b-966d-5325838e320e","peca_id":null,"descricao":"TESTE Item B mao de obra","quantidade":1.000,"valor_unitario":300.00,"valor_total":300.00,"execucao_status":"pendente","status_aprovacao":"pendente","meio_aprovacao":null,"autorizado_por_nome":null,"autorizado_em":null,"registrado_por":null,"comprovante_path":null,"observacao":null}]
+ORC=a7d51291-01c1-4f3b-966d-5325838e320e ITEM_A=6fc367f0-8476-4309-b539-f69f27237a46 ITEM_B=0ce48497-4a10-4abd-85fa-29dabd41a58b (valor_total esperado 1000)
+
+--- confere valor_total do orcamento (esperado 1000) ---
+HTTP 200
+[{"valor_total":1000.00,"status":"rascunho"}]
+
+--- envia orcamento ---
+HTTP 204
+
+
+--- registra autorizacao (gate de cliente externo p/ rpc_aprovar_orcamento legado -- nao usado aqui, mas storage exige) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Comprovante informado não foi encontrado no Storage (bucket comprovantes, path comprovantes/teste-p1b-e2e.pdf) — envie o arquivo antes de registrar a autorização"}
+
+############################################
+# APR-004: decide ITEM A = aprovado, meio=sistema
+############################################
+
+--- ENCARREGADO decide ITEM_A aprovado (sistema) ---
+HTTP 204
+
+
+############################################
+# APR-006: decide ITEM B = rejeitado, meio=verbal_documentado (com observacao)
+############################################
+
+--- ENCARREGADO decide ITEM_B rejeitado (verbal_documentado) ---
+HTTP 204
+
+--- status final do orcamento (esperado: parcialmente_aprovado) ---
+
+--- orcamento apos decisoes ---
+HTTP 200
+[{"status":"parcialmente_aprovado","valor_total":1000.00}]
+--- itens com status_aprovacao/meio_aprovacao ---
+
+--- itens do orcamento ---
+HTTP 200
+[{"id":"6fc367f0-8476-4309-b539-f69f27237a46","descricao":"TESTE Item A peca","valor_total":700.00,"status_aprovacao":"aprovado","meio_aprovacao":"sistema","autorizado_por_nome":"TESTE Responsavel Cliente","registrado_por":"a0000000-0000-0000-0000-000000000002"}, 
+ {"id":"0ce48497-4a10-4abd-85fa-29dabd41a58b","descricao":"TESTE Item B mao de obra","valor_total":300.00,"status_aprovacao":"rejeitado","meio_aprovacao":"verbal_documentado","autorizado_por_nome":"TESTE Responsavel Cliente","registrado_por":"a0000000-0000-0000-0000-000000000002"}]
+
+############################################
+# CENARIO M: retry da MESMA decisao (duplo clique) -- deve ser idempotente (sem erro, sem duplicar)
+############################################
+
+--- retry: decide ITEM_A aprovado de novo (mesma decisao) ---
+HTTP 204
+
+
+############################################
+# CENARIO N: decisao CONFLITANTE (tenta rejeitar item ja aprovado) -- deve BLOQUEAR
+############################################
+
+--- tenta rejeitar ITEM_A (ja aprovado) -- deve falhar ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Item já decidido anteriormente (aprovado) — decisão não pode ser revertida/trocada; crie uma nova versão do orçamento para alterar"}
+
+############################################
+# APR-007: EXECUTOR tenta decidir item -- deve BLOQUEAR (nao pode aprovar)
+############################################
+
+--- cria orcamento so p/ este teste de permissao ---
+HTTP 201
+[{"id":"476b385e-3530-4629-8ef8-9f7125feea27","solicitacao_id":null,"veiculo_id":"3a6e3eca-430d-4c7a-a949-98d6a23332de","cliente_id":"b3b448e2-7c38-42f9-b7b9-1bb6631009f1","orcamento_raiz_id":null,"versao":1,"status":"rascunho","valor_total":0.00,"autorizado_por_nome":null,"autorizado_em":null,"comprovante_path":null,"criado_por":"a0000000-0000-0000-0000-000000000002","criado_em":"2026-08-11T16:24:49.472126+00:00","client_request_id":null}]
+
+--- item p/ teste de permissao ---
+HTTP 201
+[{"id":"c00531fa-ead5-45af-b875-62d795bf3c9e","orcamento_id":"476b385e-3530-4629-8ef8-9f7125feea27","peca_id":null,"descricao":"TESTE item permissao","quantidade":1.000,"valor_unitario":100.00,"valor_total":100.00,"execucao_status":"pendente","status_aprovacao":"pendente","meio_aprovacao":null,"autorizado_por_nome":null,"autorizado_em":null,"registrado_por":null,"comprovante_path":null,"observacao":null}]
+
+--- envia ---
+HTTP 204
+
+
+--- EXECUTOR tenta decidir item -- deve HTTP 400 ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para registrar decisão de item de orçamento"}
+
+############################################
+# OS-002: converte orcamento PARCIALMENTE APROVADO em OS (so R$700 elegivel)
+############################################
+
+--- converte em OS externa ---
+HTTP 200
+"4c82bda2-d8bf-482f-9572-d6cc2bfcdeb8"
+OS=4c82bda2-d8bf-482f-9572-d6cc2bfcdeb8
+
+--- transiciona aberta->em_diagnostico ---
+HTTP 204
+
+
+--- transiciona em_diagnostico->em_execucao ---
+HTTP 204
+
+
+############################################
+# CENARIO D/E: item B REJEITADO tentando executar/baixar estoque -- deve BLOQUEAR
+############################################
+
+--- tenta marcar ITEM_B (rejeitado, mao de obra) como executado -- deve falhar ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Item de orçamento não está aprovado (status atual: rejeitado) — não pode ser marcado como executado/cancelado"}
+
+############################################
+# Executa ITEM_A (aprovado, peca) -- baixa 1un
+############################################
+
+--- EXECUTOR baixa peca do ITEM_A (aprovado) ---
+HTTP 204
+
+
+--- execucao_status ITEM_A (esperado executado) ---
+HTTP 200
+[{"execucao_status":"executado"}]
+
+############################################
+# ADC-001: EXECUTOR identifica necessidade de adicional (motivo)
+############################################
+
+--- EXECUTOR cria cabecalho do adicional AD-001 ---
+HTTP 200
+"050709f3-b15c-43fd-a150-ad9bb338f301"
+ADICIONAL=050709f3-b15c-43fd-a150-ad9bb338f301
+
+############################################
+# EXECUTOR tenta precificar/incluir item -- deve BLOQUEAR (nao define preco)
+############################################
+
+--- EXECUTOR tenta incluir item precificado -- deve falhar ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para precificar/incluir item de adicional"}
+
+############################################
+# ENCARREGADO precifica os 2 itens do adicional (total R$400: AD1 peca R$250 + AD2 mao de obra R$150)
+############################################
+
+--- ENCARREGADO inclui item AD1 (peca, R$250) ---
+HTTP 200
+"de24ddef-4cd0-4bf6-baab-65c8228ad6f3"
+
+--- ENCARREGADO inclui item AD2 (mao de obra, R$150) ---
+HTTP 200
+"9a5d8d71-3e13-4d6f-bc22-55d28003baef"
+ITEM_AD1=de24ddef-4cd0-4bf6-baab-65c8228ad6f3 ITEM_AD2=9a5d8d71-3e13-4d6f-bc22-55d28003baef (total esperado 400)
+
+--- cabecalho do adicional (esperado status aguardando_aprovacao) ---
+HTTP 200
+[{"numero":1,"status":"aguardando_aprovacao","motivo":"Durante a execucao foi identificado desgaste em peca nao prevista e servico extra necessario"}]
+
+############################################
+# ADC-002: tenta executar adicional AINDA sem aprovacao -- deve BLOQUEAR
+############################################
+
+--- EXECUTOR tenta baixar peca do AD1 (ainda pendente) -- deve falhar ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Item de adicional não está aprovado (status atual: pendente) — baixa bloqueada até decisão do cliente"}
+
+############################################
+# ADC-003/APR-005: cliente aprova AD1 via e-mail (evidencia obrigatoria)
+############################################
+
+--- SUPORTE decide AD1 aprovado (email) SEM comprovante -- deve falhar (DOC-005) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Aprovação via e-mail exige evidência (comprovante_path) — DOC-005"}
+
+--- SUPORTE decide AD1 aprovado (email) COM comprovante ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Comprovante informado não foi encontrado no Storage (bucket comprovantes, path comprovantes/teste-p1b-e2e.pdf) — envie o arquivo antes de registrar a decisão"}
+
+############################################
+# ADC-004: cliente rejeita AD2
+############################################
+
+--- ENCARREGADO decide AD2 rejeitado (verbal_documentado) ---
+HTTP 204
+
+--- status do adicional apos decisoes (esperado parcialmente_aprovado) ---
+
+--- adicional ---
+HTTP 200
+[{"status":"aguardando_aprovacao"}]
+
+--- itens do adicional ---
+HTTP 200
+[{"descricao":"TESTE item adicional AD1 peca","valor_total":250.00,"status_aprovacao":"pendente","meio_aprovacao":null}, 
+ {"descricao":"TESTE item adicional AD2 mao de obra","valor_total":150.00,"status_aprovacao":"rejeitado","meio_aprovacao":"verbal_documentado"}]
+
+############################################
+# CENARIO K: item AD2 (rejeitado) tentando baixar estoque -- deve BLOQUEAR
+############################################
+
+--- EXECUTOR tenta marcar AD2 (rejeitado) executado -- deve falhar ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Item de adicional não está aprovado (status atual: rejeitado) — não pode ser marcado como executado/cancelado"}
+
+############################################
+# Executa AD1 (aprovado, peca) -- baixa 1un
+############################################
+
+--- EXECUTOR baixa peca do AD1 (aprovado) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Item de adicional não está aprovado (status atual: pendente) — baixa bloqueada até decisão do cliente"}
+
+--- execucao_status AD1 (esperado executado) ---
+HTTP 200
+[{"execucao_status":"pendente"}]
+
+############################################
+# ADC-005/APR-008/APR-009: tenta alterar item ja decidido via UPDATE direto -- deve BLOQUEAR (RLS sem policy de UPDATE)
+############################################
+
+--- tenta UPDATE direto no valor_unitario do ITEM_A (ja aprovado) ---
+HTTP 200
+[]
+
+--- tenta UPDATE direto no valor_unitario do ITEM_AD1 (ja aprovado) ---
+HTTP 403
+{"code":"42501","details":null,"hint":"Grant the required privileges to the current role with: GRANT UPDATE ON public.os_adicional_itens TO authenticated;","message":"permission denied for table os_adicional_itens"}
+
+############################################
+# ADC-008: dupla criacao de adicional por clique (mesma idempotency_key) -- nao duplica
+############################################
+
+--- 1a chamada com idempotency_key ---
+HTTP 200
+"8a1e2fed-4c5a-42d0-a2d5-e37e88e0d03a"
+
+--- 2a chamada (retry) com a MESMA idempotency_key ---
+HTTP 200
+"8a1e2fed-4c5a-42d0-a2d5-e37e88e0d03a"
+ADIC_DUP1=8a1e2fed-4c5a-42d0-a2d5-e37e88e0d03a ADIC_DUP2=8a1e2fed-4c5a-42d0-a2d5-e37e88e0d03a (esperado: iguais)
+
+--- conta quantos adicionais com esse motivo existem (esperado 1) ---
+HTTP 200
+[{"id":"8a1e2fed-4c5a-42d0-a2d5-e37e88e0d03a"}]
+
+############################################
+# Marca checklist e conclui a OS
+############################################
+
+--- checklist template padrao ---
+HTTP 200
+[{"id":"37461393-80b7-4a1d-969d-beee38db4aa3","nome":"Checklist Teste Financeiro"}]
+
+--- define checklist da OS ---
+HTTP 204
+
+
+--- itens obrigatorios do checklist ---
+HTTP 200
+[{"id":"5d79d79b-ec8b-4daa-91bb-00613769b71f","obrigatorio":true}]
+
+--- transiciona em_execucao->aguardando_teste ---
+HTTP 204
+
+
+############################################
+# CON-002 estendido: tenta concluir com AD2... espera, AD2 ja decidido (rejeitado, nao bloqueia). Confirma conclusao OK.
+############################################
+
+--- tenta concluir SEM responder checklist -- deve falhar ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Existem itens obrigatórios do checklist pendentes"}
+
+ORC=a7d51291-01c1-4f3b-966d-5325838e320e ITEM_A=6fc367f0-8476-4309-b539-f69f27237a46 ITEM_B=0ce48497-4a10-4abd-85fa-29dabd41a58b OS=4c82bda2-d8bf-482f-9572-d6cc2bfcdeb8 ADIC=050709f3-b15c-43fd-a150-ad9bb338f301 ITEM_AD1=de24ddef-4cd0-4bf6-baab-65c8228ad6f3 ITEM_AD2=9a5d8d71-3e13-4d6f-bc22-55d28003baef
+=== FIM PARTE 1 (ver etapa5_e2e_apr002_adc_parte2.sh para checklist/conclusao/cobranca) ===

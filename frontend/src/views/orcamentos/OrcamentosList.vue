@@ -33,8 +33,23 @@ const severidadeStatus = {
   rascunho: 'secondary',
   enviado: 'warn',
   aprovado: 'success',
+  parcialmente_aprovado: 'warn',
   rejeitado: 'danger',
   substituido: 'contrast',
+}
+
+// ETAPA 5 (P1-B) — APR-002: totais calculados a partir do status_aprovacao
+// de CADA item (valor originalmente orçado = soma de todos os itens, igual
+// a valor_total já sempre foi; aprovado/rejeitado = soma filtrada por
+// decisão do item).
+function valorAprovado(orc) {
+  return (orc.orcamento_itens ?? []).filter((i) => i.status_aprovacao === 'aprovado').reduce((s, i) => s + i.quantidade * i.valor_unitario, 0)
+}
+function valorRejeitado(orc) {
+  return (orc.orcamento_itens ?? []).filter((i) => i.status_aprovacao === 'rejeitado').reduce((s, i) => s + i.quantidade * i.valor_unitario, 0)
+}
+function temItemPendente(orc) {
+  return (orc.orcamento_itens ?? []).some((i) => i.status_aprovacao === 'pendente')
 }
 
 function formatarMoeda(valor) {
@@ -47,7 +62,7 @@ async function carregar() {
     supabase
       .from('orcamentos')
       .select(
-        'id, versao, status, valor_total, autorizado_por_nome, comprovante_path, criado_em, solicitacao_id, veiculo:veiculos(id, placa, cliente_id), cliente:clientes(id, nome, tipo), orcamento_itens(id, peca_id, descricao, quantidade, valor_unitario), orcamento_acrescimos(id, valor_acrescimo, justificativa, criado_em)'
+        'id, versao, status, valor_total, autorizado_por_nome, comprovante_path, criado_em, solicitacao_id, veiculo:veiculos(id, placa, cliente_id), cliente:clientes(id, nome, tipo), orcamento_itens(id, peca_id, descricao, quantidade, valor_unitario, status_aprovacao, meio_aprovacao, autorizado_por_nome, autorizado_em, registrado_por, comprovante_path, observacao), orcamento_acrescimos(id, valor_acrescimo, justificativa, criado_em)'
       )
       .order('criado_em', { ascending: false }),
     supabase.from('veiculos').select('id, placa, prefixo, cliente_id, cliente:clientes(nome, tipo)').is('deleted_at', null).order('placa'),
@@ -334,6 +349,81 @@ async function salvarAcrescimo() {
   await carregar()
 }
 
+// ---------- Decisão por item (ETAPA 5/P1-B — APR-002/004/005/006) ----------
+// Aprovação deixou de ser tudo-ou-nada: cada item tem sua própria decisão
+// (pendente/aprovado/rejeitado), com meio de aprovação estruturado
+// (sistema/email/verbal_documentado) — reflexo direto de
+// rpc_decidir_item_orcamento no backend, que é a autoridade real (este
+// diálogo só evita oferecer uma decisão que o backend recusaria, ex.: item
+// já decidido).
+const dialogoDecisaoAberto = ref(false)
+const meiosAprovacao = [
+  { label: 'Sistema (botão)', value: 'sistema' },
+  { label: 'E-mail (evidência obrigatória)', value: 'email' },
+  { label: 'Verbal documentado (observação obrigatória)', value: 'verbal_documentado' },
+]
+const formDecisao = ref({ autorizado_por_nome: '', meio_aprovacao: 'sistema', observacao: '', arquivo: null })
+const decidindoItemId = ref(null)
+
+function abrirDecisao(orc) {
+  orcamentoAtual.value = orc
+  formDecisao.value = { autorizado_por_nome: orc.autorizado_por_nome || '', meio_aprovacao: 'sistema', observacao: '', arquivo: null }
+  dialogoDecisaoAberto.value = true
+}
+
+function onArquivoDecisaoSelecionado(event) {
+  formDecisao.value.arquivo = event.target.files[0] || null
+}
+
+async function decidirItem(item, decisao) {
+  if (!formDecisao.value.autorizado_por_nome || formDecisao.value.autorizado_por_nome.trim().length < 2) {
+    toast.add({ severity: 'warn', summary: 'Informe o nome de quem autorizou (cliente/responsável)', life: 5000 })
+    return
+  }
+  if (formDecisao.value.meio_aprovacao === 'verbal_documentado' && formDecisao.value.observacao.trim().length < 10) {
+    toast.add({ severity: 'warn', summary: 'Aprovação verbal documentada exige observação (mín. 10 caracteres)', life: 5000 })
+    return
+  }
+  let comprovantePath = null
+  if (formDecisao.value.meio_aprovacao === 'email') {
+    if (!formDecisao.value.arquivo) {
+      toast.add({ severity: 'warn', summary: 'Aprovação via e-mail exige o comprovante (evidência) anexado', life: 5000 })
+      return
+    }
+    const caminhoDestino = `${orcamentoAtual.value.id}/item-${item.id}-${Date.now()}-${formDecisao.value.arquivo.name}`
+    const { error: erroUpload } = await supabase.storage.from('comprovantes').upload(caminhoDestino, formDecisao.value.arquivo)
+    if (erroUpload) {
+      toast.add({ severity: 'error', summary: 'Erro ao enviar comprovante', detail: erroUpload.message, life: 6000 })
+      return
+    }
+    comprovantePath = caminhoDestino
+  }
+
+  decidindoItemId.value = item.id
+  const { error } = await supabase.rpc('rpc_decidir_item_orcamento', {
+    p_orcamento_item_id: item.id,
+    p_decisao: decisao,
+    p_meio_aprovacao: formDecisao.value.meio_aprovacao,
+    p_autorizado_por_nome: formDecisao.value.autorizado_por_nome,
+    p_comprovante_path: comprovantePath,
+    p_observacao: formDecisao.value.observacao || null,
+  })
+  decidindoItemId.value = null
+  if (error) {
+    toast.add({ severity: 'error', summary: 'Erro ao registrar decisão', detail: error.message, life: 7000 })
+    return
+  }
+  toast.add({ severity: 'success', summary: `Item ${decisao}`, life: 3000 })
+  await carregar()
+  // Reabre o mesmo orçamento atualizado (os itens já decididos somem da
+  // lista de pendentes, o diálogo continua útil para os itens restantes).
+  const atualizado = orcamentos.value.find((o) => o.id === orcamentoAtual.value.id)
+  if (atualizado) orcamentoAtual.value = atualizado
+  else dialogoDecisaoAberto.value = false
+}
+
+const tagDecisao = { pendente: 'warn', aprovado: 'success', rejeitado: 'danger' }
+
 onMounted(() => {
   carregar().then(() => {
     if (route.query.veiculo_id && !route.query.orcamento_id) abrirNovo()
@@ -361,15 +451,22 @@ onMounted(() => {
           <Tag :severity="severidadeStatus[data.status]" :value="data.status" />
         </template>
       </Column>
-      <Column header="Valor Total">
+      <Column header="Valor Original">
         <template #body="{ data }">{{ formatarMoeda(data.valor_total) }}</template>
+      </Column>
+      <!-- ETAPA 5 (P1-B) — APR-002: totais por decisão de item, não mais só o valor_total do orçamento inteiro. -->
+      <Column header="Valor Aprovado">
+        <template #body="{ data }"><span style="color:#15803d;font-weight:600">{{ formatarMoeda(valorAprovado(data)) }}</span></template>
+      </Column>
+      <Column header="Valor Rejeitado">
+        <template #body="{ data }"><span style="color:#b91c1c">{{ formatarMoeda(valorRejeitado(data)) }}</span></template>
       </Column>
       <Column header="Acréscimos" v-if="true">
         <template #body="{ data }">
           {{ formatarMoeda(data.orcamento_acrescimos.reduce((s, a) => s + a.valor_acrescimo, 0)) }}
         </template>
       </Column>
-      <Column header="Ações" style="width: 420px">
+      <Column header="Ações" style="width: 460px">
         <template #body="{ data }">
           <template v-if="data.status === 'rascunho' && podeGerir()">
             <Button icon="pi pi-list" label="Itens" size="small" text @click="abrirItens(data)" />
@@ -377,15 +474,18 @@ onMounted(() => {
           </template>
           <template v-if="data.status === 'enviado'">
             <Button v-if="podeAutorizar()" label="Autorização" size="small" text @click="abrirAutorizacao(data)" />
-            <Button v-if="podeGerir()" label="Aprovar" size="small" severity="success" @click="confirmarAprovacao(data)" />
-            <Button v-if="podeGerir()" label="Rejeitar" size="small" severity="danger" text @click="confirmarRejeicao(data)" />
+            <!-- ETAPA 5 (P1-B) — APR-002: decisão por item substitui o antigo aprovar/rejeitar tudo-ou-nada como fluxo principal. -->
+            <Button v-if="podeAutorizar()" label="Decidir Itens" icon="pi pi-check-square" size="small" severity="success" @click="abrirDecisao(data)" />
+            <Button v-if="podeGerir()" label="Aprovar tudo" size="small" text @click="confirmarAprovacao(data)" />
+            <Button v-if="podeGerir()" label="Rejeitar tudo" size="small" severity="danger" text @click="confirmarRejeicao(data)" />
           </template>
-          <template v-if="data.status === 'aprovado' && podeGerir()">
-            <Button label="Acréscimo" size="small" text @click="abrirAcrescimo(data)" />
+          <template v-if="['aprovado', 'parcialmente_aprovado'].includes(data.status) && podeGerir()">
+            <Button label="Ver decisões" size="small" text @click="abrirDecisao(data)" />
+            <Button v-if="data.status === 'aprovado'" label="Acréscimo" size="small" text @click="abrirAcrescimo(data)" />
             <Button label="Criar OS" size="small" severity="success" @click="criarOs(data)" />
           </template>
           <Button
-            v-if="['enviado', 'aprovado', 'rejeitado'].includes(data.status) && podeGerir()"
+            v-if="['enviado', 'aprovado', 'parcialmente_aprovado', 'rejeitado'].includes(data.status) && podeGerir()"
             label="Nova Versão"
             size="small"
             text
@@ -460,6 +560,57 @@ onMounted(() => {
       </template>
     </Dialog>
 
+    <!-- Decisão por item (ETAPA 5/P1-B — APR-002/004/005/006) -->
+    <Dialog v-model:visible="dialogoDecisaoAberto" modal header="Aprovação por Item" style="width: 720px">
+      <div v-if="orcamentoAtual">
+        <p class="hint">
+          Valor original: <strong>{{ formatarMoeda(orcamentoAtual.valor_total) }}</strong> —
+          Aprovado: <strong style="color:#15803d">{{ formatarMoeda(valorAprovado(orcamentoAtual)) }}</strong> —
+          Rejeitado: <strong style="color:#b91c1c">{{ formatarMoeda(valorRejeitado(orcamentoAtual)) }}</strong>
+        </p>
+
+        <div class="form-campo" v-if="temItemPendente(orcamentoAtual) && podeAutorizar()">
+          <label>Meio de aprovação (aplicado à próxima decisão)</label>
+          <Select v-model="formDecisao.meio_aprovacao" :options="meiosAprovacao" optionLabel="label" optionValue="value" />
+          <label>Autorizado por (nome do cliente/responsável)</label>
+          <InputText v-model="formDecisao.autorizado_por_nome" placeholder="Nome de quem autorizou" />
+          <template v-if="formDecisao.meio_aprovacao === 'email'">
+            <label>Comprovante (evidência do e-mail)</label>
+            <input type="file" @change="onArquivoDecisaoSelecionado" accept="image/*,application/pdf,.eml,.msg" />
+          </template>
+          <template v-if="formDecisao.meio_aprovacao === 'verbal_documentado'">
+            <label>Observação (obrigatória — quem atendeu, quando, o que foi dito)</label>
+            <Textarea v-model="formDecisao.observacao" rows="2" autoResize />
+          </template>
+        </div>
+
+        <table class="tabela-itens-decisao">
+          <thead>
+            <tr><th>Item</th><th>Valor</th><th>Status</th><th>Meio</th><th>Autorizado por</th><th>Ação</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="item in orcamentoAtual.orcamento_itens" :key="item.id">
+              <td>{{ item.descricao }} <span class="hint">({{ item.quantidade }}x)</span></td>
+              <td>{{ formatarMoeda(item.quantidade * item.valor_unitario) }}</td>
+              <td><Tag :severity="tagDecisao[item.status_aprovacao]" :value="item.status_aprovacao" /></td>
+              <td>{{ item.meio_aprovacao || '—' }}</td>
+              <td>{{ item.autorizado_por_nome || '—' }}</td>
+              <td>
+                <template v-if="item.status_aprovacao === 'pendente' && podeAutorizar()">
+                  <Button label="Aprovar" size="small" severity="success" :loading="decidindoItemId === item.id" @click="decidirItem(item, 'aprovado')" />
+                  <Button label="Rejeitar" size="small" severity="danger" text :loading="decidindoItemId === item.id" @click="decidirItem(item, 'rejeitado')" />
+                </template>
+                <span v-else-if="item.status_aprovacao !== 'pendente'" class="hint">decidido</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <template #footer>
+        <Button label="Fechar" text @click="dialogoDecisaoAberto = false" />
+      </template>
+    </Dialog>
+
     <!-- Acréscimo -->
     <Dialog v-model:visible="dialogoAcrescimoAberto" modal header="Registrar Acréscimo" style="width: 420px">
       <div class="form-campo">
@@ -515,5 +666,22 @@ onMounted(() => {
   display: flex;
   gap: 0.5rem;
   margin-top: 0.25rem;
+}
+.hint {
+  color: #6b7280;
+  font-size: 0.85rem;
+}
+.tabela-itens-decisao {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.75rem;
+}
+.tabela-itens-decisao th,
+.tabela-itens-decisao td {
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 0.85rem;
+  vertical-align: middle;
 }
 </style>
