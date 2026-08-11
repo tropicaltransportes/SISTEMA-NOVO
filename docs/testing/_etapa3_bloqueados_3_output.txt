@@ -1,0 +1,375 @@
+############################################
+# Setup: fluxo completo novo (orçamento->OS externa->concluída->cobrança) p/ FIN e LIB
+############################################
+
+--- ENCARREGADO cria orçamento ---
+HTTP 201
+[{"id":"143d1182-0843-4110-9835-d6df92dc48f3","solicitacao_id":null,"veiculo_id":"c0000000-0000-0000-0000-000000000001","cliente_id":"b0000000-0000-0000-0000-000000000001","orcamento_raiz_id":null,"versao":1,"status":"rascunho","valor_total":0.00,"autorizado_por_nome":null,"autorizado_em":null,"comprovante_path":null,"criado_por":"a0000000-0000-0000-0000-000000000002","criado_em":"2026-08-11T14:14:24.155174+00:00"}]
+
+--- adiciona item (1x R$400) ---
+HTTP 201
+[{"id":"ee7cfb65-976b-49c2-b35a-bedf0d838e01","orcamento_id":"143d1182-0843-4110-9835-d6df92dc48f3","peca_id":null,"descricao":"TESTE_E03_FIN_LIB","quantidade":1.000,"valor_unitario":400.00,"valor_total":400.00}]
+
+--- envia ---
+HTTP 204
+
+
+--- autoriza ---
+HTTP 204
+
+
+--- aprova ---
+HTTP 204
+
+
+--- converte em OS externa ---
+HTTP 200
+"99b58070-ed0e-418c-b830-29b5c55f1792"
+OS_ID=99b58070-ed0e-418c-b830-29b5c55f1792
+
+--- diagnostico ---
+HTTP 204
+
+
+--- execucao ---
+HTTP 204
+
+
+--- aguardando_teste ---
+HTTP 204
+
+
+--- checklist ok ---
+HTTP 201
+[{"id":"aaef0964-5ab3-4808-b130-4fcdbf072b9b","os_id":"99b58070-ed0e-418c-b830-29b5c55f1792","template_item_id":"20000000-0000-0000-0000-000000000011","ok":true,"respondido_por":"a0000000-0000-0000-0000-000000000001","respondido_em":"2026-08-11T14:14:27+00:00"}]
+
+--- conclui ---
+HTTP 204
+
+
+############################################
+# FIN-007 — não presumir pagamento (recém-concluída, SEM cobrança/pagamento ainda)
+############################################
+
+--- confirma que NENHUMA cobrança foi criada automaticamente ao concluir a OS ---
+HTTP 200
+[]
+
+--- status da OS após concluir (esperado: 'concluida', não 'liberada'/'paga' automaticamente) ---
+HTTP 200
+[{"id":"99b58070-ed0e-418c-b830-29b5c55f1792","status":"concluida","data_liberacao":null}]
+
+############################################
+# LIB-007 — liberar com checklist incompleto: tentativa de alcançar essa precondição
+############################################
+-- checklist já é gate obrigatório em rpc_concluir_os (ver CON-004, lote 2) — não existe caminho na API
+-- para uma OS chegar a 'concluida' com checklist obrigatório pendente. Confirma que não há via de
+-- escrita direta na tabela que bypasse isso (ordens_servico não tem policy de update p/ authenticated):
+
+--- tenta forçar status=concluida via PATCH direto (bypass), numa OS nova ainda aberta ---
+HTTP 403
+{"code":"42501","details":null,"hint":"Grant the required privileges to the current role with: GRANT UPDATE ON public.ordens_servico TO authenticated;","message":"permission denied for table ordens_servico"}
+
+############################################
+# FIN-005 — parcelamento inconsistente (soma != valor_total)
+############################################
+
+--- SUPORTE gera cobrança sobre a OS concluída (valor real R$400) ---
+HTTP 200
+"a9289bde-622c-4ae4-8ea6-d028159420c0"
+COB_ID=a9289bde-622c-4ae4-8ea6-d028159420c0
+
+--- valor_total real da cobrança ---
+HTTP 200
+[{"valor_total":400.00}]
+
+--- SUPORTE tenta parcelar com soma DIVERGENTE (2 parcelas de R$100 = 200, != 400) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Soma das parcelas (R$ 200.00) não confere com o valor da cobrança (R$ 400.00)"}
+
+--- confirma que NENHUMA parcela foi criada ---
+HTTP 200
+[]
+
+############################################
+# LIB-007 (continuação, financeiramente elegível mas SEM parcelamento/pagamento ainda) -- controle: liberar deve estar bloqueado por condição financeira, não por checklist (checklist já não é mais um fator aqui)
+############################################
+
+--- ENCARREGADO tenta liberar ANTES de formalizar parcelamento (esperado: bloqueado por condição financeira) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Condição financeira pendente: parcele, quite a cobrança ou registre o Termo de Ciência de Débito"}
+
+############################################
+# FIN-008 — pagamento parcial (parcela corretamente formalizada, depois recebimento PARCIAL)
+############################################
+
+--- SUPORTE parcela corretamente em 2x de R$200 (soma bate) ---
+HTTP 204
+
+
+--- parcela 1 criada ---
+HTTP 200
+[{"id":"a99bf46d-c57b-4f45-a755-2e57a9bd469f","valor":200.00,"status":"pendente"}]
+PARCELA1=a99bf46d-c57b-4f45-a755-2e57a9bd469f
+
+--- SUPORTE registra recebimento PARCIAL de R$80 (parcela vale R$200) ---
+HTTP 204
+
+
+--- parcela 1 DEPOIS (esperado: status ainda 'pendente', não 'paga') ---
+HTTP 200
+[{"id":"a99bf46d-c57b-4f45-a755-2e57a9bd469f","valor":200.00,"status":"pendente"}]
+
+--- cobrança DEPOIS (esperado: status 'parcial') ---
+HTTP 200
+[{"id":"a9289bde-622c-4ae4-8ea6-d028159420c0","valor_total":400.00,"status":"parcial"}]
+
+############################################
+# LIB-007 real: agora a OS está financeiramente elegível (tem parcelamento formalizado) — libera normalmente
+############################################
+
+--- ENCARREGADO libera a OS agora (condição financeira satisfeita por parcelamento formalizado) ---
+HTTP 204
+
+
+--- confirma liberada ---
+HTTP 200
+[{"id":"99b58070-ed0e-418c-b830-29b5c55f1792","status":"liberada","data_liberacao":"2026-08-11T14:14:38.27604+00:00"}]
+
+############################################
+# LIB-008 — dupla liberação
+############################################
+
+--- ENCARREGADO tenta liberar de novo a MESMA OS já liberada (esperado: bloqueado) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Somente OS concluída pode ser liberada"}
+
+############################################
+# FIN-002 — item rejeitado nunca chega a compor cobrança (via orçamento reprovado)
+############################################
+
+--- cria orçamento p/ FIN-002 ---
+HTTP 201
+[{"id":"3e12d80f-f7ab-4e4c-8c9e-3a4391a464e5","solicitacao_id":null,"veiculo_id":"c0000000-0000-0000-0000-000000000001","cliente_id":"b0000000-0000-0000-0000-000000000001","orcamento_raiz_id":null,"versao":1,"status":"rascunho","valor_total":0.00,"autorizado_por_nome":null,"autorizado_em":null,"comprovante_path":null,"criado_por":"a0000000-0000-0000-0000-000000000002","criado_em":"2026-08-11T14:14:39.65177+00:00"}]
+
+--- adiciona item ---
+HTTP 201
+[{"id":"09e9c13e-2b70-4fc5-a024-b19465eaa2d7","orcamento_id":"3e12d80f-f7ab-4e4c-8c9e-3a4391a464e5","peca_id":null,"descricao":"TESTE_E03_FIN002_Item_Sera_Rejeitado","quantidade":1.000,"valor_unitario":250.00,"valor_total":250.00}]
+
+--- envia ---
+HTTP 204
+
+
+--- REJEITA o orçamento inteiro (não há rejeição por item nesta versão do sistema) ---
+HTTP 204
+
+
+--- tenta converter em OS mesmo assim (esperado: bloqueado, item nunca chega a OS/cobrança) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Orçamento precisa estar aprovado para gerar OS"}
+
+############################################
+# FIN-009 — alterar valor após pagamento (tenta editar valor_total da cobrança já com recebimento)
+############################################
+
+--- SUPORTE tenta editar valor_total da cobrança que já tem recebimento parcial registrado ---
+HTTP 403
+{"code":"42501","details":null,"hint":"Grant the required privileges to the current role with: GRANT UPDATE ON public.cobrancas TO authenticated;","message":"permission denied for table cobrancas"}
+
+--- confirma valor_total inalterado ---
+HTTP 200
+[{"id":"a9289bde-622c-4ae4-8ea6-d028159420c0","valor_total":400.00}]
+
+############################################
+# GAR-006 — tentar alterar data_liberacao diretamente (forçar garantia)
+############################################
+
+--- ENCARREGADO tenta editar data_liberacao da OS f...0007 (liberada há 100d) para 'hoje' via PATCH direto ---
+HTTP 403
+{"code":"42501","details":null,"hint":"Grant the required privileges to the current role with: GRANT UPDATE ON public.ordens_servico TO authenticated;","message":"permission denied for table ordens_servico"}
+
+--- confirma data_liberacao NÃO mudou ---
+HTTP 200
+[{"id":"f0000000-0000-0000-0000-000000000007","data_liberacao":"2026-05-02T19:51:13.738376+00:00"}]
+
+############################################
+# AUD-005 — alteração de aprovação (histórico anterior permanece após versionar orçamento aprovado)
+############################################
+
+--- orçamento e...0003 (aprovado, será versionado) ANTES ---
+HTTP 200
+[{"id":"e0000000-0000-0000-0000-000000000003","status":"aprovado","autorizado_por_nome":"TESTE_Responsavel_Cliente"}]
+-- nota: e...0003 já foi convertido em OS f...0004 no seed original; rpc_criar_versao_orcamento não valida
+-- isso, então usamos um orçamento aprovado NOVO e exclusivo para não interferir com f...0004 --
+
+--- cria orçamento aprovado exclusivo p/ AUD-005 ---
+HTTP 201
+[{"id":"5cf4a674-523f-4425-a7d3-06bbeb9b1361","solicitacao_id":null,"veiculo_id":"c0000000-0000-0000-0000-000000000001","cliente_id":"b0000000-0000-0000-0000-000000000001","orcamento_raiz_id":null,"versao":1,"status":"rascunho","valor_total":0.00,"autorizado_por_nome":null,"autorizado_em":null,"comprovante_path":null,"criado_por":"a0000000-0000-0000-0000-000000000002","criado_em":"2026-08-11T14:14:45.618275+00:00"}]
+
+--- adiciona item ---
+HTTP 201
+[{"id":"26b0bfa3-be06-4cd8-9c62-0b7e237e967f","orcamento_id":"5cf4a674-523f-4425-a7d3-06bbeb9b1361","peca_id":null,"descricao":"TESTE_E03_AUD005","quantidade":1.000,"valor_unitario":60.00,"valor_total":60.00}]
+
+--- envia ---
+HTTP 204
+
+
+--- autoriza ---
+HTTP 204
+
+
+--- aprova ---
+HTTP 204
+
+
+--- confirma aprovado, com evidência ---
+HTTP 200
+[{"id":"5cf4a674-523f-4425-a7d3-06bbeb9b1361","status":"aprovado","autorizado_por_nome":"TESTE_Resp_AUD005","comprovante_path":"comprovantes/e03-aud005.pdf"}]
+
+--- ENCARREGADO cria nova versão a partir do orçamento APROVADO (only allowed path to 'alter') ---
+HTTP 200
+"59736387-dd57-41d2-86c3-379150646ca6"
+NOVA_V=59736387-dd57-41d2-86c3-379150646ca6
+
+--- orçamento ORIGINAL após versionar (esperado: status='substituido', autorizado_por_nome PRESERVADO — histórico não sumiu) ---
+HTTP 200
+[{"id":"5cf4a674-523f-4425-a7d3-06bbeb9b1361","status":"substituido","autorizado_por_nome":"TESTE_Resp_AUD005","comprovante_path":"comprovantes/e03-aud005.pdf"}]
+
+############################################
+# PER-003 — encarregado altera preço (operação permitida)
+############################################
+
+--- cria orçamento rascunho p/ PER-003 ---
+HTTP 201
+[{"id":"15ca45cc-6967-4f5b-b1a6-84e71738cb1c","solicitacao_id":null,"veiculo_id":"c0000000-0000-0000-0000-000000000001","cliente_id":"b0000000-0000-0000-0000-000000000001","orcamento_raiz_id":null,"versao":1,"status":"rascunho","valor_total":0.00,"autorizado_por_nome":null,"autorizado_em":null,"comprovante_path":null,"criado_por":"a0000000-0000-0000-0000-000000000002","criado_em":"2026-08-11T14:14:49.912611+00:00"}]
+
+--- adiciona item (preço inicial R$10) ---
+HTTP 201
+[{"id":"5c42fdf5-c062-4636-8760-60608c68fb60","orcamento_id":"15ca45cc-6967-4f5b-b1a6-84e71738cb1c","peca_id":null,"descricao":"TESTE_E03_PER003","quantidade":1.000,"valor_unitario":10.00,"valor_total":10.00}]
+
+--- ENCARREGADO altera o preço para R$25 (esperado: permitido) ---
+HTTP 200
+[{"id":"5c42fdf5-c062-4636-8760-60608c68fb60","orcamento_id":"15ca45cc-6967-4f5b-b1a6-84e71738cb1c","peca_id":null,"descricao":"TESTE_E03_PER003","quantidade":1.000,"valor_unitario":25.00,"valor_total":25.00}]
+
+############################################
+# PER-005 — manipulação de ID (tenta editar apontamento de OUTRO usuário)
+############################################
+
+--- apontamento existente de OUTRO usuário (encarregado) na OS f...0009 ---
+HTTP 200
+[]
+APONT_ID=
+
+############################################
+# DOC-004 — termo de débito vinculado à liberação (fluxo novo e exclusivo)
+############################################
+
+--- cria cliente inadimplente novo p/ DOC-004 (evita reaproveitar b...0003) ---
+HTTP 201
+[{"id":"96c6659e-2993-448a-9981-193f26871da1","tipo":"externo","nome":"TESTE_E03_Cliente_DOC004","documento":"77777777000107","telefone":null,"email":null,"deleted_at":null}]
+
+--- veículo novo ---
+HTTP 201
+[{"id":"44838c1a-8bca-4fce-bded-4cf69602bead","cliente_id":"96c6659e-2993-448a-9981-193f26871da1","placa":"TSE0402","prefixo":"E03D","modelo":"TESTE_DOC004","ano":2021,"deleted_at":null,"criado_em":"2026-08-11T14:14:53.150552+00:00"}]
+
+--- orçamento ---
+HTTP 201
+[{"id":"4228b83b-62a9-4528-9dce-fbfb36d9b7df","solicitacao_id":null,"veiculo_id":"44838c1a-8bca-4fce-bded-4cf69602bead","cliente_id":"96c6659e-2993-448a-9981-193f26871da1","orcamento_raiz_id":null,"versao":1,"status":"rascunho","valor_total":0.00,"autorizado_por_nome":null,"autorizado_em":null,"comprovante_path":null,"criado_por":"a0000000-0000-0000-0000-000000000002","criado_em":"2026-08-11T14:14:53.753776+00:00"}]
+
+--- item ---
+HTTP 201
+[{"id":"57e4c0c3-5dd6-47c3-9250-574dd71134f3","orcamento_id":"4228b83b-62a9-4528-9dce-fbfb36d9b7df","peca_id":null,"descricao":"TESTE_E03_DOC004","quantidade":1.000,"valor_unitario":150.00,"valor_total":150.00}]
+
+--- envia ---
+HTTP 204
+
+
+--- autoriza ---
+HTTP 204
+
+
+--- aprova ---
+HTTP 204
+
+
+--- converte ---
+HTTP 200
+"91189827-9a47-4d29-8ae1-6cc0b0246d7d"
+OS_DOC004=91189827-9a47-4d29-8ae1-6cc0b0246d7d
+
+--- diagnostico ---
+HTTP 204
+
+
+--- execucao ---
+HTTP 204
+
+
+--- aguardando_teste ---
+HTTP 204
+
+
+--- checklist ok ---
+HTTP 201
+[{"id":"858e3655-1f37-4c43-b37a-0b7da68a8284","os_id":"91189827-9a47-4d29-8ae1-6cc0b0246d7d","template_item_id":"20000000-0000-0000-0000-000000000011","ok":true,"respondido_por":"a0000000-0000-0000-0000-000000000001","respondido_em":"2026-08-11T14:14:57+00:00"}]
+
+--- conclui ---
+HTTP 204
+
+
+--- SUPORTE gera cobrança ---
+HTTP 200
+"b0cdde8e-7361-40ad-9673-40205dca7baf"
+COB_DOC004=b0cdde8e-7361-40ad-9673-40205dca7baf
+
+--- ENCARREGADO registra termo de ciência de débito (cliente não vai pagar agora) ---
+HTTP 204
+
+
+--- ENCARREGADO libera a OS (condição financeira satisfeita pelo termo) ---
+HTTP 204
+
+
+--- DOC-004: consulta a OS liberada + o termo vinculado via cobranca_origens/termos_ciencia_debito ---
+HTTP 200
+[{"id":"91189827-9a47-4d29-8ae1-6cc0b0246d7d","status":"liberada","data_liberacao":"2026-08-11T14:14:59.94411+00:00"}]
+
+--- termo vinculado à cobrança desta OS ---
+HTTP 200
+[{"id":"03adfcdf-d88a-49b0-bfba-e259d0c24e88","cobranca_id":"b0cdde8e-7361-40ad-9673-40205dca7baf","arquivo_path":"comprovantes/e03-termo-doc004.pdf","assinado_em":"2026-08-11T14:14:59.502958+00:00"}]
+
+############################################
+# NFR-001 — atomicidade: falha forçada em rpc_criar_os (orçamento não pertence ao veículo)
+############################################
+31
+content-range antes: Content-Range: 0-30/31
+
+--- tenta converter e...0003 (aprovado, mas pertence a c...0001) informando um p_veiculo_id DIFERENTE (c...0002) -> falha no meio da RPC ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"OS externa exige veículo de cliente externo"}
+content-range depois: Content-Range: 0-30/31
+(se os dois content-range forem iguais, nenhuma OS parcial foi criada pela tentativa que falhou no meio da função -> atomicidade confirmada)
+
+############################################
+# NFR-002 — atomicidade no estorno: falha forçada (movimento inexistente)
+############################################
+
+--- saldo da peça EST001 (lote 2) ANTES da tentativa de estorno inválido ---
+HTTP 200
+[{"id":"264af321-96d5-4e48-8bae-9adea69aea12","saldo_atual":20.000}]
+
+--- SUPORTE tenta estornar um movimento_id INEXISTENTE (força exceção 'não encontrado' no meio da função) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Movimento de saída 00000000-0000-0000-0000-000000000000 não encontrado"}
+
+--- saldo da peça EST001 DEPOIS (esperado: inalterado, nenhum efeito parcial) ---
+HTTP 200
+[{"id":"264af321-96d5-4e48-8bae-9adea69aea12","saldo_atual":20.000}]
+
+############################################
+# NFR-010 — erro controlado de arquivo (download de objeto inexistente no Storage)
+############################################
+HTTP 400
+{"statusCode":"404","error":"not_found","message":"Object not found","code":"NoSuchKey"}
+
+=== FIM LOTE 3 ===
