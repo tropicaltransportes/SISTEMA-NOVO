@@ -1,0 +1,292 @@
+############################################
+# AUT-007 — Logout: sessão deixa de permitir operações protegidas?
+############################################
+access_token obtido, refresh_token obtido
+
+--- ANTES do logout: EXECUTOR lê ordens_servico (esperado: 200) ---
+HTTP 200
+[{"id":"23e2e6e9-3d6d-4949-bc99-5bb80d5f1da7"}]
+
+--- chama /auth/v1/logout ---
+HTTP 204
+
+
+--- DEPOIS do logout: MESMO access_token tenta ler ordens_servico de novo ---
+HTTP 200
+[{"id":"23e2e6e9-3d6d-4949-bc99-5bb80d5f1da7"}]
+
+--- tenta usar o refresh_token pós-logout (esperado: negado, pois scope=global revoga) ---
+HTTP 400
+{"code":400,"error_code":"refresh_token_not_found","msg":"Invalid Refresh Token: Refresh Token Not Found"}
+
+############################################
+# AUT-008 — Elevação indevida de perfil (executor tenta virar administrador_tecnico)
+############################################
+
+--- EXECUTOR tenta alterar o PRÓPRIO perfil via PATCH direto em profiles ---
+HTTP 403
+{"code":"42501","details":null,"hint":null,"message":"new row violates row-level security policy for table \"profiles\""}
+
+--- confirma perfil real após a tentativa ---
+HTTP 200
+[{"id":"a0000000-0000-0000-0000-000000000001","perfil":"executor"}]
+
+############################################
+# AUT-010 — Credenciais em resposta (checagem de vazamento em claro)
+############################################
+corpo da resposta de login (sem grep de senha abaixo, ver NFR-009 no relatório final)
+Traceback (most recent call last):
+  File "<string>", line 3, in <module>
+    d = json.load(open('/tmp/_login_body_aut010.json'))
+                  ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/_login_body_aut010.json'
+
+############################################
+# CAD-001/002/003 — cadastro de cliente
+############################################
+
+--- CAD-001: ENCARREGADO cria cliente EXTERNO válido ---
+HTTP 201
+[{"id":"85632080-367e-482c-a70b-9cd54f78da4b","tipo":"externo","nome":"TESTE_E03_Cliente_Externo_CAD001","documento":"55555555000105","telefone":"(11) 90000-0101","email":"cad001@teste.qa","deleted_at":null}]
+CLI_EXT=85632080-367e-482c-a70b-9cd54f78da4b
+
+--- CAD-002: ENCARREGADO cria cliente INTERNO válido ---
+HTTP 201
+[{"id":"ede4791d-3d2c-438e-b72e-cf8b2107a73f","tipo":"interno","nome":"TESTE_E03_Cliente_Interno_CAD002","documento":null,"telefone":"(11) 90000-0102","email":null,"deleted_at":null}]
+CLI_INT=ede4791d-3d2c-438e-b72e-cf8b2107a73f
+
+--- CAD-003: ENCARREGADO tenta criar cliente SEM nome (campo obrigatório) ---
+HTTP 400
+{"code":"23502","details":null,"hint":null,"message":"null value in column \"nome\" of relation \"clientes\" violates not-null constraint"}
+
+############################################
+# CAD-005/006/007 — cadastro de veículo
+############################################
+
+--- CAD-005: ENCARREGADO cadastra veículo vinculado ao cliente novo ---
+HTTP 201
+[{"id":"fcffd272-1f4f-40db-b937-c8c4abb8a11b","cliente_id":"85632080-367e-482c-a70b-9cd54f78da4b","placa":"TSE0301","prefixo":"E03A","modelo":"TESTE_Modelo_E03","ano":2023,"deleted_at":null,"criado_em":"2026-08-11T14:10:16.389051+00:00"}]
+
+--- CAD-006: ENCARREGADO tenta cadastrar OUTRO veículo com a MESMA placa (TSE0301) ---
+HTTP 409
+{"code":"23505","details":null,"hint":null,"message":"duplicate key value violates unique constraint \"uq_veiculos_placa_ativo\""}
+
+--- CAD-007: ENCARREGADO tenta cadastrar veículo SEM cliente_id ---
+HTTP 400
+{"code":"23502","details":null,"hint":null,"message":"null value in column \"cliente_id\" of relation \"veiculos\" violates not-null constraint"}
+
+############################################
+# CAD-008 — alterar dados do cliente (sem perder histórico transacional)
+############################################
+
+--- ENCARREGADO altera telefone/email do cliente novo ---
+HTTP 200
+[{"id":"85632080-367e-482c-a70b-9cd54f78da4b","tipo":"externo","nome":"TESTE_E03_Cliente_Externo_CAD001","documento":"55555555000105","telefone":"(11) 99999-0101","email":"cad001-novo@teste.qa","deleted_at":null}]
+
+############################################
+# CAD-009 — inativar cliente COM histórico (usa b...0001, que já tem OS/orçamento/cobrança reais)
+############################################
+
+--- ANTES: cliente b...0001 tem quantas OS vinculadas? ---
+HTTP 200
+[{"id":"1acfd1a2-0354-4ac2-8155-081fb39f2c8f"}, 
+ {"id":"5c442ec3-ef87-43d7-903e-ad4ccbfcd7ce"}, 
+ {"id":"f0000000-0000-0000-0000-000000000004"}, 
+ {"id":"f0000000-0000-0000-0000-000000000008"}, 
+ {"id":"22cb2954-b894-4264-849e-e3119022d501"}, 
+ {"id":"ef200325-5164-4424-86e8-85c4609fd023"}]
+
+--- SUPORTE inativa cliente b...0001 (soft delete via deleted_at) ---
+HTTP 200
+[{"id":"b0000000-0000-0000-0000-000000000001","tipo":"externo","nome":"TESTE_Cliente_Externo_Normal","documento":"11111111000101","telefone":"(11) 90000-0001","email":"contato@testeexternonormal.qa","deleted_at":"2026-08-11T14:10:18+00:00"}]
+
+--- DEPOIS: histórico de OS deste cliente continua consultável? ---
+HTTP 200
+[{"id":"1acfd1a2-0354-4ac2-8155-081fb39f2c8f","status":"cancelada"}, 
+ {"id":"5c442ec3-ef87-43d7-903e-ad4ccbfcd7ce","status":"aberta"}, 
+ {"id":"f0000000-0000-0000-0000-000000000004","status":"concluida"}, 
+ {"id":"f0000000-0000-0000-0000-000000000008","status":"cancelada"}, 
+ {"id":"22cb2954-b894-4264-849e-e3119022d501","status":"aberta"}, 
+ {"id":"ef200325-5164-4424-86e8-85c4609fd023","status":"reaberta_garantia"}]
+
+--- cliente aparece marcado como inativo (deleted_at preenchido)? ---
+HTTP 200
+[{"id":"b0000000-0000-0000-0000-000000000001","nome":"TESTE_Cliente_Externo_Normal","deleted_at":"2026-08-11T14:10:18+00:00"}]
+-- reverte a inativação para não afetar outros testes/relatórios anteriores que referenciam b...0001 --
+
+--- SUPORTE reverte deleted_at do cliente b...0001 para null ---
+HTTP 200
+[{"id":"b0000000-0000-0000-0000-000000000001","tipo":"externo","nome":"TESTE_Cliente_Externo_Normal","documento":"11111111000101","telefone":"(11) 90000-0001","email":"contato@testeexternonormal.qa","deleted_at":null}]
+
+############################################
+# CAD-011 — troca de vínculo (proprietário) de veículo com histórico
+############################################
+
+--- ANTES: veículo c...0001 pertence a qual cliente, e sua OS f...0004 (concluída) mostra qual cliente_id? ---
+HTTP 200
+[{"id":"c0000000-0000-0000-0000-000000000001","cliente_id":"b0000000-0000-0000-0000-000000000001"}]
+
+--- OS f...0004 cliente_id ANTES da troca ---
+HTTP 200
+[{"id":"f0000000-0000-0000-0000-000000000004","cliente_id":"b0000000-0000-0000-0000-000000000001"}]
+
+--- ENCARREGADO troca o cliente_id do veículo c...0001 para o cliente interno novo (simulação de troca de proprietário) ---
+HTTP 200
+[{"id":"c0000000-0000-0000-0000-000000000001","cliente_id":"ede4791d-3d2c-438e-b72e-cf8b2107a73f","placa":"TST0A01","prefixo":"QA01","modelo":"TESTE_Modelo_Generico","ano":2020,"deleted_at":null,"criado_em":"2026-08-10T19:51:13.738376+00:00"}]
+
+--- DEPOIS: veículo c...0001 agora pertence a qual cliente? ---
+HTTP 200
+[{"id":"c0000000-0000-0000-0000-000000000001","cliente_id":"ede4791d-3d2c-438e-b72e-cf8b2107a73f"}]
+
+--- OS f...0004 cliente_id DEPOIS da troca (esperado: NÃO muda — histórico preservado) ---
+HTTP 200
+[{"id":"f0000000-0000-0000-0000-000000000004","cliente_id":"b0000000-0000-0000-0000-000000000001"}]
+-- reverte o vínculo do veículo para o cliente original b...0001 --
+
+--- ENCARREGADO reverte cliente_id do veículo c...0001 para b...0001 ---
+HTTP 200
+[{"id":"c0000000-0000-0000-0000-000000000001","cliente_id":"b0000000-0000-0000-0000-000000000001","placa":"TST0A01","prefixo":"QA01","modelo":"TESTE_Modelo_Generico","ano":2020,"deleted_at":null,"criado_em":"2026-08-10T19:51:13.738376+00:00"}]
+
+############################################
+# ORC-002/003 — orçamento sem cliente / sem veículo
+############################################
+
+--- ORC-002: ENCARREGADO tenta criar orçamento SEM cliente_id ---
+HTTP 400
+{"code":"23502","details":null,"hint":null,"message":"null value in column \"cliente_id\" of relation \"orcamentos\" violates not-null constraint"}
+
+--- ORC-003: ENCARREGADO tenta criar orçamento SEM veiculo_id ---
+HTTP 400
+{"code":"23502","details":null,"hint":null,"message":"null value in column \"veiculo_id\" of relation \"orcamentos\" violates not-null constraint"}
+
+############################################
+# ORC-006 — alterar quantidade de item (recálculo de subtotal/total)
+############################################
+
+--- orçamento e...0001 (rascunho) ANTES: valor_total e itens ---
+HTTP 200
+[{"id":"e0000000-0000-0000-0000-000000000001","valor_total":100.00}]
+
+--- item do e...0001 ---
+HTTP 200
+[{"id":"1c177050-7f07-4376-bd5d-5c3e473fe2c9","quantidade":1.000,"valor_unitario":100.00,"valor_total":100.00}]
+ITEM_ID=1c177050-7f07-4376-bd5d-5c3e473fe2c9
+
+--- ENCARREGADO altera quantidade do item de 1 para 5 ---
+HTTP 200
+[{"id":"1c177050-7f07-4376-bd5d-5c3e473fe2c9","orcamento_id":"e0000000-0000-0000-0000-000000000001","peca_id":"d0000000-0000-0000-0000-000000000001","descricao":"TESTE_Servico_Generico","quantidade":5.000,"valor_unitario":100.00,"valor_total":500.00}]
+
+--- orçamento e...0001 DEPOIS: valor_total deve ter recalculado (5x100=500) ---
+HTTP 200
+[{"id":"e0000000-0000-0000-0000-000000000001","valor_total":500.00}]
+
+--- item DEPOIS ---
+HTTP 200
+[{"id":"1c177050-7f07-4376-bd5d-5c3e473fe2c9","quantidade":5.000,"valor_unitario":100.00,"valor_total":500.00}]
+-- reverte quantidade para 1 (estado original do seed) --
+
+--- ENCARREGADO reverte quantidade para 1 ---
+HTTP 200
+[{"id":"1c177050-7f07-4376-bd5d-5c3e473fe2c9","orcamento_id":"e0000000-0000-0000-0000-000000000001","peca_id":"d0000000-0000-0000-0000-000000000001","descricao":"TESTE_Servico_Generico","quantidade":1.000,"valor_unitario":100.00,"valor_total":100.00}]
+
+############################################
+# ORC-015 — editar orçamento ENVIADO (cenário novo, não reaproveita e...0002)
+############################################
+
+--- ENCARREGADO cria orçamento novo p/ ORC-015 ---
+HTTP 201
+[{"id":"a83eca48-4a4f-41a1-bfdd-9170f0430df0","solicitacao_id":null,"veiculo_id":"c0000000-0000-0000-0000-000000000001","cliente_id":"b0000000-0000-0000-0000-000000000001","orcamento_raiz_id":null,"versao":1,"status":"rascunho","valor_total":0.00,"autorizado_por_nome":null,"autorizado_em":null,"comprovante_path":null,"criado_por":"a0000000-0000-0000-0000-000000000002","criado_em":"2026-08-11T14:10:29.116634+00:00"}]
+ORC015_ID=a83eca48-4a4f-41a1-bfdd-9170f0430df0
+
+--- adiciona item ---
+HTTP 201
+[{"id":"e47a061a-b0e9-4ac5-8c8a-bbd9d8f1e344","orcamento_id":"a83eca48-4a4f-41a1-bfdd-9170f0430df0","peca_id":null,"descricao":"TESTE_E03_ORC015","quantidade":1.000,"valor_unitario":70.00,"valor_total":70.00}]
+
+--- ENCARREGADO envia o orçamento (rascunho -> enviado) ---
+HTTP 204
+
+
+--- ENCARREGADO tenta EDITAR o item diretamente, agora que o orçamento está 'enviado' (esperado: bloqueado por RLS) ---
+HTTP 200
+[]
+
+--- confirma que o valor NÃO mudou ---
+HTTP 200
+[{"id":"e47a061a-b0e9-4ac5-8c8a-bbd9d8f1e344","valor_unitario":70.00}]
+-- caminho controlado e correto: versionar o orçamento (preserva o original) --
+
+--- ENCARREGADO cria nova versão a partir do orçamento enviado ---
+HTTP 200
+"01a8583b-b27a-4526-b2aa-cb3fb6fbd6fa"
+NOVA_VERSAO_ID=01a8583b-b27a-4526-b2aa-cb3fb6fbd6fa
+
+--- orçamento ORIGINAL após versionar (esperado: status=substituido, preservado, NÃO apagado) ---
+HTTP 200
+[{"id":"a83eca48-4a4f-41a1-bfdd-9170f0430df0","status":"substituido","versao":1}]
+
+--- NOVA versão (esperado: rascunho, versao=2, aponta orcamento_raiz_id pro original) ---
+HTTP 200
+[{"id":"01a8583b-b27a-4526-b2aa-cb3fb6fbd6fa","status":"rascunho","versao":2,"orcamento_raiz_id":"a83eca48-4a4f-41a1-bfdd-9170f0430df0"}]
+
+############################################
+# APR-003 — reprovação integral bloqueia conversão em OS
+############################################
+
+--- ENCARREGADO cria orçamento novo p/ APR-003 ---
+HTTP 201
+[{"id":"616c59a8-857f-4a6b-b6db-aa93e600a79a","solicitacao_id":null,"veiculo_id":"c0000000-0000-0000-0000-000000000001","cliente_id":"b0000000-0000-0000-0000-000000000001","orcamento_raiz_id":null,"versao":1,"status":"rascunho","valor_total":0.00,"autorizado_por_nome":null,"autorizado_em":null,"comprovante_path":null,"criado_por":"a0000000-0000-0000-0000-000000000002","criado_em":"2026-08-11T14:10:33.671008+00:00"}]
+
+--- adiciona item ---
+HTTP 201
+[{"id":"d6077a04-15d4-4ebd-be47-28d98ae8340d","orcamento_id":"616c59a8-857f-4a6b-b6db-aa93e600a79a","peca_id":null,"descricao":"TESTE_E03_APR003","quantidade":1.000,"valor_unitario":50.00,"valor_total":50.00}]
+
+--- ENCARREGADO envia ---
+HTTP 204
+
+
+--- ENCARREGADO REPROVA o orçamento ---
+HTTP 204
+
+
+--- confirma status=rejeitado ---
+HTTP 200
+[{"id":"616c59a8-857f-4a6b-b6db-aa93e600a79a","status":"rejeitado"}]
+
+--- ENCARREGADO tenta converter o orçamento REJEITADO em OS (esperado: bloqueado) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Orçamento precisa estar aprovado para gerar OS"}
+
+############################################
+# APR-008/009/010/011 — item aprovado é imutável fora de RPC (usa e...0006, aprovado, ainda não convertido em OS nesta rodada)
+############################################
+
+--- orçamento e...0006 (aprovado) — item atual ---
+HTTP 200
+[{"id":"bbeec7c0-fa1f-461d-8961-a7cdbd605c78","valor_unitario":300.00,"quantidade":1.000}]
+ITEM_0006=bbeec7c0-fa1f-461d-8961-a7cdbd605c78
+
+--- APR-008: ENCARREGADO tenta ALTERAR PREÇO de item já aprovado (esperado: bloqueado, RLS exige rascunho) ---
+HTTP 200
+[]
+
+--- APR-009: ENCARREGADO tenta ALTERAR QUANTIDADE de item já aprovado (esperado: bloqueado) ---
+HTTP 200
+[]
+
+--- APR-010: ENCARREGADO tenta ADICIONAR NOVO item a orçamento já aprovado (esperado: bloqueado) ---
+HTTP 403
+{"code":"42501","details":null,"hint":null,"message":"new row violates row-level security policy for table \"orcamento_itens\""}
+
+--- confirma que o item NÃO mudou (preço/quantidade originais) ---
+HTTP 200
+[{"id":"bbeec7c0-fa1f-461d-8961-a7cdbd605c78","valor_unitario":300.00,"quantidade":1.000}]
+
+--- APR-011: ENCARREGADO tenta APAGAR a evidência de aprovação (autorizado_por_nome/comprovante_path) do e...0006 ---
+HTTP 403
+{"code":"42501","details":null,"hint":"Grant the required privileges to the current role with: GRANT UPDATE ON public.orcamentos TO authenticated;","message":"permission denied for table orcamentos"}
+
+--- confirma que a evidência de aprovação PERMANECE ---
+HTTP 200
+[{"id":"e0000000-0000-0000-0000-000000000006","status":"aprovado","autorizado_por_nome":"TESTE_Responsavel_Garantia","comprovante_path":"comprovantes/teste-autorizacao-0006.pdf"}]
+
+=== FIM LOTE 1 ===

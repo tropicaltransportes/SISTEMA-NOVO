@@ -1,0 +1,166 @@
+SUPORTE: login OK
+ADMIN: login OK
+ENCARREGADO: login OK
+INATIVO: login OK
+EXECUTOR: login OK
+SEMPERFIL: login OK
+############################################
+# AUT-004 (PÓS-FIX) — 4 cenários exigidos
+############################################
+
+--- SUPORTE cria peça exclusiva QA_PECA_AUT004_POSFIX2 ---
+HTTP 201
+[{"id":"786ba73c-05a2-4b72-8b31-08dc2b684a59","sku":"QA_PECA_AUT004_POSFIX2","descricao":"TESTE_E03_Peca_AUT004_posfix","unidade":"UN","saldo_atual":0.000,"custo_medio":10.0000,"estoque_minimo":1.000,"deleted_at":null,"criado_em":"2026-08-11T14:06:40.643896+00:00"}]
+PECA=786ba73c-05a2-4b72-8b31-08dc2b684a59
+
+--- SUPORTE cria NF rascunho ---
+HTTP 201
+[{"id":"0a431f61-354e-4f63-acd2-e6b2263b9421","numero":"NF-E03-AUT004-POSFIX2","fornecedor":"TESTE_Fornecedor_E03","status":"rascunho","data_emissao":"2026-08-11","criado_por":"a0000000-0000-0000-0000-000000000003","criado_em":"2026-08-11T14:06:41.192647+00:00"}]
+
+--- SUPORTE adiciona item (30un x R$10) ---
+HTTP 201
+[{"id":"b7a8f795-06e3-4498-9785-e2e20691a24a","nf_id":"0a431f61-354e-4f63-acd2-e6b2263b9421","peca_id":"786ba73c-05a2-4b72-8b31-08dc2b684a59","quantidade":30.000,"valor_unitario":10.0000}]
+
+--- SUPORTE confirma NF (saldo inicial 30) ---
+HTTP 204
+
+
+--- ADMIN cria OS interna exclusiva p/ pós-fix ---
+HTTP 200
+"70796cbe-e3d6-4b76-921c-c5391f441e41"
+OS=70796cbe-e3d6-4b76-921c-c5391f441e41
+
+--- ADMIN transiciona aberta->em_diagnostico ---
+HTTP 204
+
+
+--- ADMIN transiciona em_diagnostico->em_execucao ---
+HTTP 204
+
+
+== Cenário 1: ativo=true + perfil autorizado (EXECUTOR) -> esperado PERMITIDO ==
+
+--- EXECUTOR (ativo=true) baixa 2un ---
+HTTP 204
+
+
+== Cenário 2: ativo=false + MESMO perfil (INATIVO, perfil real=executor) -> esperado BLOQUEADO ==
+
+--- INATIVO (ativo=false) tenta baixar 3un (op. NOVA, nunca feita) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para baixar peça em OS"}
+
+== Cenário 3: sem profile (SEMPERFIL) -> esperado BLOQUEADO ==
+
+--- SEMPERFIL tenta baixar 4un ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para baixar peça em OS"}
+
+== Cenário 4: anon -> esperado BLOQUEADO ==
+
+--- ANON tenta baixar 5un ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para baixar peça em OS"}
+
+-- confirma saldo final via query (só o cenário 1 deve ter afetado saldo: 30 -> 28) --
+[{"sku":"QA_PECA_AUT004_POSFIX2","saldo_atual":28.000}]
+
+== Extra: INATIVO tenta ação de LEITURA simples (SELECT ordens_servico) — confirma que o fix não quebrou leitura básica indevidamente (não é objetivo do BR-028 bloquear leitura, só escrita/operação) ==
+
+--- INATIVO consegue LER ordens_servico (esperado: sim, leitura não é uma 'operação' restrita por perfil) ---
+HTTP 200
+[{"id":"70796cbe-e3d6-4b76-921c-c5391f441e41","status":"em_execucao"}]
+
+############################################
+# EST-009 (PÓS-FIX) — idempotency_key persistente (>5s) + concorrência
+############################################
+
+--- SUPORTE cria peça exclusiva QA_PECA_EST009_POSFIX2 ---
+HTTP 201
+[{"id":"a600e6d2-3fd8-4816-9adf-1a4167f98c81","sku":"QA_PECA_EST009_POSFIX2","descricao":"TESTE_E03_Peca_EST009_posfix","unidade":"UN","saldo_atual":0.000,"custo_medio":10.0000,"estoque_minimo":1.000,"deleted_at":null,"criado_em":"2026-08-11T14:06:47.142592+00:00"}]
+PECA2=a600e6d2-3fd8-4816-9adf-1a4167f98c81
+
+--- SUPORTE cria NF rascunho ---
+HTTP 201
+[{"id":"1ff1fae3-c40b-4d8b-a3a9-6ad970e14d0d","numero":"NF-E03-EST009-POSFIX2","fornecedor":"TESTE_Fornecedor_E03","status":"rascunho","data_emissao":"2026-08-11","criado_por":"a0000000-0000-0000-0000-000000000003","criado_em":"2026-08-11T14:06:47.714394+00:00"}]
+
+--- SUPORTE adiciona item (40un x R$10) ---
+HTTP 201
+[{"id":"be357934-56bb-4025-82bd-c210679c1e13","nf_id":"1ff1fae3-c40b-4d8b-a3a9-6ad970e14d0d","peca_id":"a600e6d2-3fd8-4816-9adf-1a4167f98c81","quantidade":40.000,"valor_unitario":10.0000}]
+
+--- SUPORTE confirma NF (saldo inicial 40) ---
+HTTP 204
+
+
+--- ADMIN cria 2ª OS interna exclusiva p/ EST-009 pós-fix ---
+HTTP 200
+"130b3dfb-93de-4e74-a408-d5077e1b9899"
+OS2=130b3dfb-93de-4e74-a408-d5077e1b9899
+
+--- ADMIN transiciona aberta->em_diagnostico ---
+HTTP 204
+
+
+--- ADMIN transiciona em_diagnostico->em_execucao ---
+HTTP 204
+
+idempotency_key K1 gerada pelo cliente para esta OPERAÇÃO LÓGICA: 8c6047eb-94d8-4339-bcad-b80abb8d85c3
+
+--- saldo peça EST009_POSFIX ---
+[{"sku":"QA_PECA_EST009_POSFIX2","saldo_atual":40.000}]
+
+--- (A) baixa original com idempotency_key=K1 (5un) ---
+HTTP 204
+
+
+--- saldo peça EST009_POSFIX ---
+[{"sku":"QA_PECA_EST009_POSFIX2","saldo_atual":35.000}]
+
+--- (B) retry IMEDIATO com a MESMA K1 (esperado: bloqueado) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Operação já processada (idempotency_key 8c6047eb-94d8-4339-bcad-b80abb8d85c3 já usada para esta baixa) — nenhuma nova movimentação foi registrada"}
+
+--- saldo peça EST009_POSFIX ---
+[{"sku":"QA_PECA_EST009_POSFIX2","saldo_atual":35.000}]
+Aguardando 6 segundos...
+
+--- (C) retry após >5s com a MESMA K1 (esperado AGORA: continua bloqueado — idempotência persistente) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Operação já processada (idempotency_key 8c6047eb-94d8-4339-bcad-b80abb8d85c3 já usada para esta baixa) — nenhuma nova movimentação foi registrada"}
+
+--- saldo peça EST009_POSFIX ---
+[{"sku":"QA_PECA_EST009_POSFIX2","saldo_atual":35.000}]
+
+--- (D) retry de novo, mesma K1 (esperado: continua bloqueado) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Operação já processada (idempotency_key 8c6047eb-94d8-4339-bcad-b80abb8d85c3 já usada para esta baixa) — nenhuma nova movimentação foi registrada"}
+
+--- saldo peça EST009_POSFIX ---
+[{"sku":"QA_PECA_EST009_POSFIX2","saldo_atual":35.000}]
+
+-- controle: uma operação NOVA e LEGÍTIMA (chave K2 diferente) deve funcionar normalmente --
+
+--- operação NOVA com idempotency_key=K2 diferente (3un) — esperado: sucesso ---
+HTTP 204
+
+
+--- saldo peça EST009_POSFIX ---
+[{"sku":"QA_PECA_EST009_POSFIX2","saldo_atual":32.000}]
+
+-- concorrência real: duas chamadas SIMULTÂNEAS com a MESMA idempotency_key K3 --
+conc1 HTTP 204
+conc2 HTTP 400
+resultado conc1:
+
+resultado conc2:
+{"code":"P0001","details":null,"hint":null,"message":"Operação já processada (idempotency_key 38c289d7-c2d3-4b0e-b574-2555f3161037 já usada para esta baixa) — nenhuma nova movimentação foi registrada"}
+
+--- saldo peça EST009_POSFIX ---
+[{"sku":"QA_PECA_EST009_POSFIX2","saldo_atual":30.000}]
+-- confirma via SQL: quantas linhas com idempotency_key=K3 existem? (esperado: exatamente 1) --
+OS_AUT004_POSFIX=70796cbe-e3d6-4b76-921c-c5391f441e41
+PECA_AUT004_POSFIX=786ba73c-05a2-4b72-8b31-08dc2b684a59
+OS_EST009_POSFIX=130b3dfb-93de-4e74-a408-d5077e1b9899
+PECA_EST009_POSFIX=a600e6d2-3fd8-4816-9adf-1a4167f98c81
+IDK3=38c289d7-c2d3-4b0e-b574-2555f3161037
+=== FIM PÓS-FIX P0 ===

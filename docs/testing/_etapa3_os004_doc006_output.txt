@@ -1,0 +1,95 @@
+############################################
+# OS-004 — orçamento aprovado -> OS -> cancelar OS -> reconverter o MESMO orçamento
+############################################
+
+--- ENCARREGADO cria orçamento rascunho (cliente/veículo externo b...0001/c...0001) ---
+HTTP 201
+[{"id":"274b4c78-a0ab-4905-8ed4-a5e7643056c0","solicitacao_id":null,"veiculo_id":"c0000000-0000-0000-0000-000000000001","cliente_id":"b0000000-0000-0000-0000-000000000001","orcamento_raiz_id":null,"versao":1,"status":"rascunho","valor_total":0.00,"autorizado_por_nome":null,"autorizado_em":null,"comprovante_path":null,"criado_por":"a0000000-0000-0000-0000-000000000002","criado_em":"2026-08-11T14:08:23.76422+00:00"}]
+ORC_ID=274b4c78-a0ab-4905-8ed4-a5e7643056c0
+
+--- ENCARREGADO adiciona item (1un x R$90, mão de obra) ---
+HTTP 201
+[{"id":"981ab636-65e1-4e80-9150-424aa8d1b72d","orcamento_id":"274b4c78-a0ab-4905-8ed4-a5e7643056c0","peca_id":null,"descricao":"TESTE_E03_OS004_Servico","quantidade":1.000,"valor_unitario":90.00,"valor_total":90.00}]
+
+--- ENCARREGADO envia orçamento ---
+HTTP 204
+
+
+--- SUPORTE registra autorização do cliente externo ---
+HTTP 204
+
+
+--- ENCARREGADO aprova orçamento ---
+HTTP 204
+
+
+--- 1) ENCARREGADO converte em OS externa (1ª conversão, esperado: sucesso) ---
+HTTP 200
+"1acfd1a2-0354-4ac2-8155-081fb39f2c8f"
+OS_ID=1acfd1a2-0354-4ac2-8155-081fb39f2c8f
+
+--- 2) tentativa de reconverter ENQUANTO a OS ainda está ativa (controle — esperado: bloqueado, já confirmado na rodada 2) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Este orçamento já foi convertido em uma OS ativa"}
+
+--- 3) ENCARREGADO cancela a OS (aberta -> cancelada) ---
+HTTP 204
+
+
+--- confirma status da OS após cancelamento ---
+HTTP 200
+[{"id":"1acfd1a2-0354-4ac2-8155-081fb39f2c8f","status":"cancelada"}]
+
+4) ENCARREGADO tenta CONVERTER O MESMO ORÇAMENTO DE NOVO, agora que a OS está cancelada
+
+--- reconversão do MESMO orçamento pós-cancelamento (comportamento a REGISTRAR, não alterar) ---
+HTTP 200
+"5c442ec3-ef87-43d7-903e-ad4ccbfcd7ce"
+OS_ID_2 (se criada)=5c442ec3-ef87-43d7-903e-ad4ccbfcd7ce
+
+--- quantas OS existem para este orcamento_id agora? ---
+HTTP 200
+[{"id":"1acfd1a2-0354-4ac2-8155-081fb39f2c8f","status":"cancelada"}, 
+ {"id":"5c442ec3-ef87-43d7-903e-ad4ccbfcd7ce","status":"aberta"}]
+
+############################################
+# DOC-006 — modelo real de autorização por documento no bucket 'comprovantes'
+# Documento A: comprovante do orçamento X (cliente A). Documento B: comprovante
+# de um orçamento Y TOTALMENTE diferente (cliente diferente). Teste de acesso
+# cruzado: ENCARREGADO (que só participou do fluxo do doc A) lê o doc B; e
+# SUPORTE (que só participou do fluxo do doc B) lê o doc A.
+############################################
+DOC_A_PATH=comprovantes/e03-doc006-A-1786457309.txt
+
+--- SUPORTE faz upload do Documento A ---
+HTTP 200
+{"Key":"comprovantes/e03-doc006-A-1786457309.txt","Id":"8b249ef1-79e1-4da8-b6b4-1f6ae1f77dc4"}
+DOC_B_PATH=comprovantes/e03-doc006-B-1786457310.txt
+
+--- ENCARREGADO faz upload do Documento B ---
+HTTP 200
+{"Key":"comprovantes/e03-doc006-B-1786457310.txt","Id":"e62eed15-9ba1-4cee-a24f-05651ea4cfa8"}
+
+-- ENCARREGADO (nunca fez upload/participou do doc A) tenta LER o Documento A --
+HTTP 200
+TESTE_E03_DOC_A conteudo exclusivo A Tue Aug 11 11:08:29 HPBA 2026
+
+-- SUPORTE (nunca fez upload/participou do doc B) tenta LER o Documento B --
+HTTP 200
+TESTE_E03_DOC_B conteudo exclusivo B Tue Aug 11 11:08:30 HPBA 2026
+
+-- DIRETORIA (nunca participou de NENHUM dos dois) tenta ler A e B --
+Doc A HTTP 200
+TESTE_E03_DOC_A conteudo exclusivo A Tue Aug 11 11:08:29 HPBA 2026
+Doc B HTTP 200
+TESTE_E03_DOC_B conteudo exclusivo B Tue Aug 11 11:08:30 HPBA 2026
+
+-- EXECUTOR (perfil bloqueado por completo no fix P0-02) tenta ler A --
+HTTP 400
+{"statusCode":"404","error":"not_found","message":"Object not found","code":"NoSuchKey"}
+
+CONCLUSAO ESPERADA: se ENCARREGADO le B e SUPORTE le A (documentos aos quais NUNCA tiveram
+vinculo/participacao) com HTTP 200, e DIRETORIA (fora de qualquer um dos 2 fluxos) tambem le
+ambos com 200, o modelo é (A) SOMENTE POR PERFIL (qualquer perfil <> executor lê QUALQUER
+documento do bucket, independente de vínculo com o registro). Se desse erro, seria (B) por vínculo.
+=== FIM OS-004 / DOC-006 ===

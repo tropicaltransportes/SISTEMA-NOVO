@@ -1,0 +1,202 @@
+############################################
+# OS-003 — converter SEM aprovação (orçamento rascunho e enviado)
+############################################
+
+--- tenta converter e...0001 (rascunho) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Orçamento precisa estar aprovado para gerar OS"}
+
+############################################
+# NFR-005 — referência cruzada inválida (OS interna com veículo de cliente externo)
+############################################
+
+--- ADMIN tenta criar OS INTERNA usando veículo de cliente EXTERNO (c...0001) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"OS interna exige veículo da frota própria (cliente interno)"}
+
+############################################
+# Setup: nova OS interna exclusiva p/ OS-008/009/011/CON-004/CON-008/EXE-008/NFR-001/002
+############################################
+
+--- ADMIN cria OS interna exclusiva ---
+HTTP 200
+"c524038c-93a1-424d-9757-4dc1ef36cb0b"
+OS_ID=c524038c-93a1-424d-9757-4dc1ef36cb0b
+
+############################################
+# OS-008 — pular estado obrigatório (forçar direto p/ concluida via rpc_transicionar_os)
+############################################
+
+--- ADMIN tenta transicionar aberta -> concluida diretamente (esperado: bloqueado, use RPC específica) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Use a RPC específica para esta transição (rpc_concluir_os / rpc_liberar_os)"}
+
+############################################
+# OS-011 — duplo início (aberta->em_diagnostico duas vezes)
+############################################
+
+--- 1ª chamada: aberta -> em_diagnostico (esperado: sucesso) ---
+HTTP 204
+
+
+--- 2ª chamada IMEDIATA: mesma transição de novo (esperado: bloqueado, já não está mais em 'aberta') ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Transição em_diagnostico -> em_diagnostico não é permitida"}
+
+--- confirma status final (esperado: em_diagnostico, sem duplicar evento) ---
+HTTP 200
+[{"id":"c524038c-93a1-424d-9757-4dc1ef36cb0b","status":"em_diagnostico"}]
+
+--- avança em_diagnostico -> em_execucao (necessário p/ próximos testes) ---
+HTTP 204
+
+
+############################################
+# EXE-008 — executor tenta alterar preço de item de orçamento (usa item do e...0006, aprovado)
+############################################
+
+--- EXECUTOR tenta alterar valor_unitario de item de orçamento (mesmo em rascunho, executor não tem perfil autorizado) ---
+HTTP 200
+[]
+
+--- confirma preço inalterado ---
+HTTP 200
+[{"id":"1c177050-7f07-4376-bd5d-5c3e473fe2c9","valor_unitario":100.00}]
+
+############################################
+# CON-004 — concluir com checklist incompleto (OS_ID já em em_execucao, checklist NUNCA respondido)
+############################################
+
+--- ADMIN transiciona em_execucao -> aguardando_teste ---
+HTTP 204
+
+
+--- ADMIN tenta CONCLUIR sem responder o item obrigatório do checklist (esperado: bloqueado) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Existem itens obrigatórios do checklist pendentes"}
+
+--- confirma status ainda aguardando_teste ---
+HTTP 200
+[{"id":"c524038c-93a1-424d-9757-4dc1ef36cb0b","status":"aguardando_teste"}]
+-- agora completa o checklist de verdade, para poder testar CON-008 e OS-009 em seguida --
+
+--- EXECUTOR responde item obrigatório do checklist ---
+HTTP 201
+[{"id":"df5c9584-2ea9-4ca7-b38a-be7b99826a2e","os_id":"c524038c-93a1-424d-9757-4dc1ef36cb0b","template_item_id":"20000000-0000-0000-0000-000000000011","ok":true,"respondido_por":"a0000000-0000-0000-0000-000000000001","respondido_em":"2026-08-11T14:12:26+00:00"}]
+
+--- ADMIN conclui a OS agora (esperado: sucesso) ---
+HTTP 204
+
+
+############################################
+# CON-008 — conclusão repetida (chamar rpc_concluir_os de novo na MESMA OS já concluída)
+############################################
+
+--- ADMIN tenta concluir de novo (esperado: bloqueado, status já não é aguardando_teste) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Somente OS em Aguardando Teste podem ser concluídas"}
+
+############################################
+# OS-009 — reabrir OS encerrada (concluida -> em_execucao, e depois liberada -> em_execucao)
+############################################
+
+--- ADMIN tenta reabrir (concluida -> em_execucao) via rpc_transicionar_os (esperado: bloqueado) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Transição concluida -> em_execucao não é permitida"}
+-- também tenta a partir de uma OS já LIBERADA (f...0006, liberada há 10 dias) --
+
+--- ADMIN tenta reabrir a OS f...0006 (liberada) direto para em_execucao (esperado: bloqueado) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Transição liberada -> em_execucao não é permitida"}
+
+############################################
+# EST-001 — entrada por compra (fluxo completo NF, 10 unidades)
+############################################
+
+--- SUPORTE cria peça exclusiva p/ EST-001 ---
+HTTP 201
+[{"id":"264af321-96d5-4e48-8bae-9adea69aea12","sku":"QA_PECA_EST001_E03","descricao":"TESTE_E03_Peca_EST001","unidade":"UN","saldo_atual":0.000,"custo_medio":0.0000,"estoque_minimo":1.000,"deleted_at":null,"criado_em":"2026-08-11T14:12:29.731042+00:00"}]
+PECA_EST001=264af321-96d5-4e48-8bae-9adea69aea12
+
+--- SUPORTE cria NF rascunho ---
+HTTP 201
+[{"id":"a753fb44-8d24-4c75-a0ca-993c9dec3cb9","numero":"NF-E03-EST001","fornecedor":"TESTE_Fornecedor_E03","status":"rascunho","data_emissao":"2026-08-11","criado_por":"a0000000-0000-0000-0000-000000000003","criado_em":"2026-08-11T14:12:30.348986+00:00"}]
+
+--- SUPORTE adiciona item (10un x R$25) ---
+HTTP 201
+[{"id":"3b0ea927-d261-456b-b108-b96e7b7cb331","nf_id":"a753fb44-8d24-4c75-a0ca-993c9dec3cb9","peca_id":"264af321-96d5-4e48-8bae-9adea69aea12","quantidade":10.000,"valor_unitario":25.0000}]
+
+--- saldo ANTES de confirmar ---
+HTTP 200
+[{"saldo_atual":0.000}]
+
+--- SUPORTE confirma a NF (registra entrada de 10un) ---
+HTTP 204
+
+
+--- saldo DEPOIS (esperado: 10) ---
+HTTP 200
+[{"saldo_atual":10.000,"custo_medio":25.0000}]
+
+--- movimento registrado (esperado: tipo=entrada, origem_tipo=nf_entrada) ---
+HTTP 200
+[{"tipo":"entrada","origem_tipo":"nf_entrada","origem_id":"a753fb44-8d24-4c75-a0ca-993c9dec3cb9","quantidade":10.000,"custo_unitario":25.0000}]
+
+############################################
+# EST-003 — entrada com custo inválido (negativo)
+############################################
+
+--- SUPORTE cria 2ª NF rascunho ---
+HTTP 201
+[{"id":"9891233b-51de-43c6-8b93-b11418bf665a","numero":"NF-E03-EST003","fornecedor":"TESTE_Fornecedor_E03","status":"rascunho","data_emissao":"2026-08-11","criado_por":"a0000000-0000-0000-0000-000000000003","criado_em":"2026-08-11T14:12:34.149834+00:00"}]
+
+--- SUPORTE tenta adicionar item com custo NEGATIVO (esperado: bloqueado por CHECK constraint) ---
+HTTP 400
+{"code":"23514","details":null,"hint":null,"message":"new row for relation \"nf_entrada_itens\" violates check constraint \"nf_entrada_itens_valor_unitario_check\""}
+
+############################################
+# EST-012 — alterar custo histórico (2ª entrada muda custo médio; movimento antigo deve preservar valor original)
+############################################
+
+--- custo_unitario do movimento de entrada ORIGINAL (10un x R$25) ---
+HTTP 200
+[{"id":"cecdc930-2961-45cb-b56c-c6a1144b7401","custo_unitario":25.0000}]
+
+--- SUPORTE cria 3ª NF (2ª entrada real, custo diferente: 10un x R$45 -> muda custo médio ponderado) ---
+HTTP 201
+[{"id":"38f3f407-ff72-43c3-8f5d-9f92c359b10a","numero":"NF-E03-EST012","fornecedor":"TESTE_Fornecedor_E03","status":"rascunho","data_emissao":"2026-08-11","criado_por":"a0000000-0000-0000-0000-000000000003","criado_em":"2026-08-11T14:12:35.995477+00:00"}]
+
+--- SUPORTE adiciona item (10un x R$45) ---
+HTTP 201
+[{"id":"392cd149-551c-4681-934c-e81c076eb295","nf_id":"38f3f407-ff72-43c3-8f5d-9f92c359b10a","peca_id":"264af321-96d5-4e48-8bae-9adea69aea12","quantidade":10.000,"valor_unitario":45.0000}]
+
+--- SUPORTE confirma (custo_medio da peça deve subir para (10*25+10*45)/20=35) ---
+HTTP 204
+
+
+--- peça DEPOIS (custo_medio esperado: 35.00, saldo 20) ---
+HTTP 200
+[{"saldo_atual":20.000,"custo_medio":35.0000}]
+
+--- movimento ORIGINAL (1ª entrada) DEPOIS — custo_unitario deve CONTINUAR 25.00 (ledger imutável) ---
+HTTP 200
+[{"id":"cecdc930-2961-45cb-b56c-c6a1144b7401","custo_unitario":25.0000,"quantidade":10.000}, 
+ {"id":"a8103394-54cb-45e5-a375-eb2bdfa11ef9","custo_unitario":45.0000,"quantidade":10.000}]
+
+############################################
+# EST-014 — reconciliação de saldo (entradas - saídas + estornos = saldo_atual)
+############################################
+
+--- todos os movimentos da peça EST001 ---
+HTTP 200
+[{"tipo":"entrada","quantidade":10.000}, 
+ {"tipo":"entrada","quantidade":10.000}]
+
+--- saldo_atual oficial da peça ---
+HTTP 200
+[{"saldo_atual":20.000}]
+(cálculo de reconciliação feito no relatório final a partir dos dados acima)
+
+PECA_EST001=264af321-96d5-4e48-8bae-9adea69aea12
+OS_ID (OS-008/009/011/CON-004/CON-008/EXE-008)=c524038c-93a1-424d-9757-4dc1ef36cb0b
+=== FIM LOTE 2 ===
