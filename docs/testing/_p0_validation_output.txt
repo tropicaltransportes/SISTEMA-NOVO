@@ -1,0 +1,81 @@
+=== Checagem de bypass de permissão (chamador anônimo, sem login) ===
+Esperado seguro: 'Perfil sem permissão...' em toda RPC de escrita.
+Achado crítico: qualquer mensagem de negócio (ex: '... não encontrado')
+significa que o check de permissão foi pulado.
+
+--- SELECT profiles (esperado: [] vazio) ---
+HTTP 200
+[]
+--- rpc_criar_os (RPC: rpc_criar_os) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para criar ordem de serviço"}
+--- rpc_enviar_orcamento (RPC: rpc_enviar_orcamento) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para enviar orçamento"}
+--- rpc_aprovar_orcamento (RPC: rpc_aprovar_orcamento) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para aprovar orçamento"}
+--- rpc_rejeitar_orcamento (RPC: rpc_rejeitar_orcamento) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para rejeitar orçamento"}
+--- rpc_registrar_autorizacao_orcamento (RPC: rpc_registrar_autorizacao_orcamento) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para registrar autorização"}
+--- rpc_criar_versao_orcamento (RPC: rpc_criar_versao_orcamento) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para versionar orçamento"}
+--- rpc_registrar_acrescimo (RPC: rpc_registrar_acrescimo) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para registrar acréscimo"}
+--- rpc_transicionar_os (RPC: rpc_transicionar_os) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para transicionar OS"}
+--- rpc_concluir_os (RPC: rpc_concluir_os) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para concluir OS"}
+--- rpc_liberar_os (RPC: rpc_liberar_os) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para liberar OS"}
+--- rpc_criar_os_garantia (RPC: rpc_criar_os_garantia) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para abrir OS de garantia"}
+--- rpc_definir_checklist_os (RPC: rpc_definir_checklist_os) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para definir checklist da OS"}
+--- rpc_baixar_peca_os (RPC: rpc_baixar_peca_os) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para baixar peça em OS"}
+--- rpc_criar_cobranca (arrays vazios) (RPC: rpc_criar_cobranca) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para gerar cobrança"}
+--- rpc_parcelar_cobranca (RPC: rpc_parcelar_cobranca) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para parcelar cobrança"}
+--- rpc_registrar_recebimento (RPC: rpc_registrar_recebimento) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para registrar recebimento"}
+--- rpc_registrar_termo_ciencia (RPC: rpc_registrar_termo_ciencia) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para registrar termo de ciência"}
+--- rpc_cancelar_cobranca (RPC: rpc_cancelar_cobranca) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para cancelar cobrança"}
+--- rpc_confirmar_nf_entrada (RPC: rpc_confirmar_nf_entrada) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para confirmar nota fiscal"}
+--- rpc_estornar_nf_entrada (RPC: rpc_estornar_nf_entrada) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para estornar nota fiscal"}
+--- rpc_criar_venda_avulsa (itens vazio, evita insert) (RPC: rpc_criar_venda_avulsa) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Perfil sem permissão para registrar venda avulsa"}
+--- [SEGURANÇA] rpc_registrar_saida_estoque, peça FAKE (sem check de perfil próprio) ---
+HTTP 401
+{"code":"42501","details":null,"hint":null,"message":"permission denied for function rpc_registrar_saida_estoque"}
+--- [SEGURANÇA] rpc_registrar_entrada_estoque, peça FAKE (sem check de perfil próprio) ---
+HTTP 401
+{"code":"42501","details":null,"hint":null,"message":"permission denied for function rpc_registrar_entrada_estoque"}
+--- Autorização inválida: Bearer JWT malformado numa RPC protegida (esperado: 401) ---
+HTTP 401
+{"code":"PGRST301","details":null,"hint":null,"message":"JWT cryptographic operation failed"}
+=== FIM ===
