@@ -24,9 +24,19 @@ do documento por um cadastro novo. Índice único parcial
 `supabase/migrations/20260812091000_p1a_cad004_documento_unico.sql`.
 
 ## BR-002 — Cadastro de veículo
-**Status:** DEFINIDA
+**Status:** DEFINIDA (histórico dedicado implementado na ETAPA 6/P1-C — CAD-012)
 
 Cada atendimento, orçamento e OS deve estar vinculado a um veículo identificável. O histórico do veículo deve permanecer consultável mesmo que o cliente seja inativado.
+
+**Implementação (ETAPA 6, item 7, CAD-012):** `rpc_historico_veiculo(p_veiculo_id)`
+consolida (sem duplicar dado — só agrega o que já existe em `ordens_servico`/
+`orcamentos`/`cobranca_origens`) todas as OS do veículo em ordem
+cronológica, com tipo, status, datas, orçamento vinculado, custo (interna)
+ou valor faturado (externa), executores e indicação de quando a OS é
+garantia de outra. Quilometragem não é rastreada em nenhuma tabela do
+sistema hoje (não existe coluna de odômetro em `veiculos` nem por OS) — o
+campo é omitido em vez de inventado; ver `docs/testing/TEST_REPORT_P1C.md`.
+Ver `supabase/migrations/20260814111000_p1c_relatorios.sql`.
 
 ## BR-003 — Orçamento
 **Status:** DEFINIDA
@@ -196,9 +206,28 @@ Ver `supabase/migrations/20260813100200_p1b_adc_tabelas.sql`,
 O preço de peças e serviços é definido/autorizado pelo encarregado. Alterações de preço devem ser auditáveis.
 
 ## BR-011 — Desconto
-**Status:** DEFINIDA
+**Status:** DEFINIDA (estruturado e auditável na ETAPA 6/P1-C — Decisão 7, ORC-007/ORC-008/FIN-003/PEN-007)
 
 Descontos podem existir. Devem possuir valor válido, usuário responsável e rastreabilidade.
+
+**Implementação (ETAPA 6, item 9):** `orcamentos` ganha
+`valor_bruto`/`desconto_percentual`/`desconto_valor`/`desconto_motivo`/
+`desconto_por`/`desconto_em`/`valor_liquido`. `orcamento_itens` ganha
+`desconto_rateado` + `valor_liquido` (gerada). `rpc_aplicar_desconto_orcamento`
+(encarregado/administrador_tecnico — mesma autoridade de preço, BR-010) só
+atua em orçamento `rascunho`, exige motivo, aceita percentual OU valor
+(nunca os dois), nunca permite valor final negativo, e é bloqueada acima do
+teto configurado em `desconto_config` (Decisão 7, só administrador_tecnico
+define o teto). O desconto é **rateado proporcionalmente** a cada item
+(instrução explícita: "preferir aplicar aos itens aos quais ele efetivamente
+pertence"), com o último item (ordenado por id) absorvendo o resíduo de
+arredondamento — `sum(desconto_rateado) = desconto_valor` sempre, sem
+centavo divergente entre orçamento → item → cobrança → PDF.
+`rpc_criar_cobranca` passa a somar `valor_liquido` dos itens aprovados em
+vez de `valor_total`. Se o orçamento já foi aprovado pelo cliente, alterar o
+desconto exige nova versão (`rpc_criar_versao_orcamento`, já existente) —
+nunca altera silenciosamente um valor comercial já apresentado/aprovado. Ver
+`supabase/migrations/20260814110200_p1c_desconto_orcamento.sql`.
 
 ## BR-012 — Parcelamento
 **Status:** DEFINIDA
@@ -291,14 +320,36 @@ Movimentações erradas devem ser estornadas por lançamento compensatório audi
 Entrada de estoque ocorre por compra/NF. Deve registrar item, quantidade, custo, fornecedor/documento quando disponível, usuário e data/hora.
 
 ## BR-018 — Executores
-**Status:** DEFINIDA
+**Status:** DEFINIDA (remoção formal implementada na ETAPA 6/P1-C — EXE-003)
 
 Uma OS pode possuir múltiplos executores. O histórico de participação deve permanecer registrado.
 
+**Implementação (ETAPA 6, item 8, EXE-003):** distingue encerrar
+participação futura de apagar histórico. `os_executores` ganha
+`ativo`/`removido_por`/`removido_em`/`motivo_remocao`. `rpc_remover_executor_os`
+(encarregado/administrador_tecnico, motivo obrigatório, auditado) só marca
+`ativo=false` — nunca apaga/edita `inicio`/`fim`/`observacao` já registrados,
+nunca permite remoção após a OS encerrada (a participação já acabou por
+si só nesse ponto). Ver `supabase/migrations/20260814110700_p1c_executor_remocao.sql`.
+
 ## BR-019 — Fotos
-**Status:** DEFINIDA
+**Status:** DEFINIDA (implementada na ETAPA 6/P1-C — Decisão 6, PEN-006, EXE-005/006/007)
 
 A OS deve permitir fotos antes/depois. A obrigatoriedade por tipo de serviço pode ser configurável.
+
+**Implementação (ETAPA 6, itens 2/3):** bucket próprio `os-fotos` (Storage),
+tabela `os_fotos` (os_id, tipo antes/depois/outro, arquivo_path, enviado_por,
+enviado_em, observacao, mime_type, tamanho_bytes). `rpc_registrar_foto_os`
+valida: objeto existe de fato no Storage (DOC-005), MIME/tamanho a partir
+dos METADADOS REAIS gravados pelo Storage no upload (não confia no que o
+cliente alega), path pertence à OS informada (bloqueia vincular foto de
+outra OS), e RBAC (executor só na OS em que está atuando — `os_executores`).
+Limites configuráveis em `anexos_config` (histórico, só administrador_tecnico
+altera). Obrigatoriedade é por `checklist_templates.foto_antes_obrigatoria`/
+`foto_depois_obrigatoria` — **nunca global** — e bloqueia `rpc_concluir_os`
+quando exigida e ausente. Ver
+`supabase/migrations/20260814110300_p1c_fotos_os.sql` e
+`20260814110400_p1c_concluir_os_fotos.sql`.
 
 ## BR-020 — Checklist de liberação
 **Status:** DEFINIDA
@@ -340,13 +391,22 @@ formalmente aberto e ativo). Ver
 A liberação do veículo pode ser feita pelo administrativo ou encarregado.
 
 ## BR-023 — Condição financeira para liberação
-**Status:** DEFINIDA
+**Status:** DEFINIDA (Termo de Ciência de Débito estruturado na ETAPA 6/P1-C — Decisão 8, PEN-008)
 
 Veículo de cliente externo só pode ser liberado após:
 - pagamento confirmado; **ou**
 - termo de ciência de débito e comprometimento de quitação registrado.
 
 Sem uma dessas condições, a liberação deve ser bloqueada.
+
+**Implementação (ETAPA 6, Decisão 8):** `termos_ciencia_debito` ganha
+`cliente_id`, `valor_reconhecido`, `responsavel_nome`,
+`responsavel_documento`, `registrado_por`, `observacao`, `criado_em` (as OS
+relacionadas continuam derivadas de `cobranca_origens`, N:N já existente —
+sem duplicar o vínculo). `rpc_registrar_termo_ciencia` continua reusando
+`storage_objeto_existe` (DOC-005) e agora exige nome do responsável. O termo
+continua sendo alternativa válida para liberação (`rpc_liberar_os`, regra
+inalterada). Ver `supabase/migrations/20260814110900_p1c_termo_ciencia_extensao.sql`.
 
 ## BR-024 — Garantia
 **Status:** DEFINIDA (vínculo com item original implementado na ETAPA 4/P1-A)
@@ -362,14 +422,48 @@ precisam pertencer de fato ao orçamento da OS original. Na execução da OS
 de garantia, `rpc_baixar_peca_os` só aceita baixar peça vinculada a um
 desses itens (mesma peça do item original), com cota própria por OS de
 garantia (não compartilha o que já foi consumido pela OS original). Não
-permite lançar serviço/peça "totalmente sem relação com a origem". Relatório
-de garantia (PDF) continua fora de escopo (P1-B/P1-C). Ver
+permite lançar serviço/peça "totalmente sem relação com a origem". Ver
 `supabase/migrations/20260812096000_p1a_gar005_vinculo_garantia.sql`.
 
+**Extensão a itens de adicional + relatório de garantia (ETAPA 6, item
+5/6, GAR-007):** `os_garantia_itens` passa a aceitar item do orçamento
+ORIGINAL **ou** item de ADICIONAL aprovado da OS original — nunca os dois
+juntos no mesmo registro (`orcamento_item_original_id`/
+`os_adicional_item_original_id`, CHECK `num_nonnulls(...) = 1`).
+`rpc_criar_os_garantia` ganha `p_itens_adicionais_originais`, validando que
+o item pertence à OS de origem e está `aprovado` (item rejeitado nunca gera
+garantia, para qualquer uma das duas origens). `rpc_relatorio_garantia_os`
+consolida OS de garantia, OS original, prazo, itens originais e de
+adicional objeto da garantia, execução realizada, responsáveis e conclusão.
+
+**Regressão real encontrada e corrigida nesta rodada:** a reescrita de
+`rpc_baixar_peca_os` feita no P1-B
+(`20260813100300_p1b_estoque_execucao_adicional.sql`, para acrescentar o
+ramo de item de adicional) não considerou o ramo de GARANTIA introduzido no
+P1-A (baseado em `os_origem_id`) — a função nova nem sequer selecionava mais
+essa coluna. Resultado: desde o P1-B, **baixar peça em uma OS de garantia
+falhava silenciosamente com "baixa avulsa sem vínculo não é permitida"**
+(caía no ramo de orçamento por engano, sem checar `os_origem_id`). Corrigido
+em `supabase/migrations/20260814110600_p1c_garantia_adicional_fix.sql`, que
+reintroduz o ramo de garantia (agora cobrindo item original e item de
+adicional) ao lado dos dois ramos do P1-B — confirmado por execução real
+(ver `docs/testing/TEST_REPORT_P1C.md`).
+
 ## BR-025 — Relatório de encerramento
-**Status:** DEFINIDA
+**Status:** DEFINIDA (implementada na ETAPA 6/P1-C — CON-005/CON-006/DOC-003)
 
 A OS deve permitir relatório de encerramento com identificação do veículo/cliente, serviços, peças, responsáveis, datas, valores aplicáveis e informações de liberação.
+
+**Implementação (ETAPA 6, item 4):** `rpc_relatorio_encerramento_os`
+(security invoker — respeita a RLS de cada tabela para quem chama, não é um
+jeito novo de contornar permissão) consolida OS, cliente, veículo, datas,
+previsão, executores (com horas apontadas), orçamento original com decisão
+por item, adicionais com seus itens, checklist, fotos, peças
+utilizadas/custo unitário no momento da baixa, custo interno OU cobrança
+vinculada (conforme tipo), e garantia aberta a partir desta OS quando
+houver. Não modifica a OS — é só leitura/consolidação; a geração do
+documento/PDF fica a cargo do frontend a partir destes dados. Ver
+`supabase/migrations/20260814111000_p1c_relatorios.sql`.
 
 ## BR-026 — Exclusão de histórico
 **Status:** PROVISÓRIA (reforçada na ETAPA 4/P1-A — CON-007)
@@ -468,9 +562,17 @@ item (bloqueado, HTTP 400 "Perfil sem permissão") e tentando precificar
 adicional (bloqueado, mesma mensagem) diretamente pela API.
 
 ## BR-029 — Prazo
-**Status:** DEFINIDA
+**Status:** DEFINIDA (ETAPA 6/P1-C, Decisão 3 — resolve PEN-003)
 
-O prazo de entrega é definido com base no valor/escopo do orçamento conforme regra operacional do encarregado. O critério exato de faixas ainda precisa ser parametrizado.
+O prazo de entrega é definido MANUALMENTE pelo encarregado nesta etapa —
+**sem** faixas automáticas por valor (decisão explícita: não implementar
+essa automação agora). `ordens_servico.previsao_conclusao` +
+`previsao_definida_por`/`previsao_definida_em`, com histórico completo em
+`os_prazo_historico`. `rpc_definir_previsao_conclusao`
+(encarregado/administrador_tecnico) exige motivo quando é uma ALTERAÇÃO de
+prazo já definido (não na 1ª definição), permitida enquanto a OS estiver em
+andamento (bloqueada após concluída/liberada/cancelada). Ver
+`supabase/migrations/20260814110100_p1c_prazo_os.sql`.
 
 ## BR-030 — Autorização do encarregado
 **Status:** DEFINIDA
@@ -532,14 +634,21 @@ sinal de conversão; o orçamento continua com seu último status de
 aprovação (histórico correto, não sobrescrito).
 
 ## BR-036 — Cliente interno
-**Status:** PENDENTE
+**Status:** DEFINIDA (ETAPA 6/P1-C, Decisão 1 — resolve FIN-010/PEN-001/PEN-002)
 
-Definir se cliente interno terá cobrança, centro de custo, apenas custo interno, hora interna, ou combinação desses mecanismos.
+OS de cliente interno NUNCA gera cobrança financeira (nenhuma cobrança,
+parcela ou recebimento fictício). Apura CUSTO TOTAL = custo real das peças
+efetivamente consumidas + custo de mão de obra (horas apontadas × custo/hora
+vigente, Decisão 2) + centro de custo quando informado (cadastro simples,
+não hardcoded — tabela `centro_custo`). Ver seção "Decisões ETAPA 6 (P1-C)"
+abaixo e `supabase/migrations/20260814110500_p1c_cliente_interno_custo.sql`.
 
 ## BR-037 — Boleto
-**Status:** PENDENTE
+**Status:** DECIDIDO — FORA_DO_ESCOPO_ATUAL (ETAPA 6/P1-C, Decisão 4 — resolve PEN-004)
 
-Boleto é raro no processo. Não assumir obrigatoriedade de integração bancária sem decisão posterior.
+Integração bancária real (emissão/registro de boleto) permanece fora do
+escopo controlado. Nenhum mock, tabela fictícia ou código incompleto foi
+criado para este item.
 
 ## BR-038 — Reserva de peças
 **Status:** DEFINIDA
@@ -547,9 +656,14 @@ Boleto é raro no processo. Não assumir obrigatoriedade de integração bancár
 Reserva de peça separada da baixa não é usada atualmente. Não criar dependência de reserva prévia para a OS.
 
 ## BR-039 — Nota fiscal de peças
-**Status:** PENDENTE
+**Status:** DECIDIDO — FORA_DO_ESCOPO_ATUAL (ETAPA 6/P1-C, Decisão 5 — resolve PEN-005)
 
-Emissão fiscal de peças/serviços não está no escopo obrigatório atual. Testes fiscais devem permanecer fora da suíte obrigatória até definição.
+Emissão fiscal de venda/serviço (NF-e/NFS-e real) permanece fora do escopo
+controlado — nenhuma integração fiscal fictícia foi criada. A NF de
+ENTRADA de peças já existente no módulo de estoque (`notas_fiscais_entrada`
+/ `nf_entrada_itens`, recebimento/compra de peça) é um conceito
+completamente diferente e continua válida — não deve ser confundida com
+emissão fiscal de saída/venda.
 
 ## BR-040 — Segurança de dados
 **Status:** PROVISÓRIA (DOC-005 e AUT-007 tratados na ETAPA 4/P1-A)
@@ -586,3 +700,120 @@ sempre chamar `signOut()` no cliente ao sair (já implementado em
 token como risco operacional conhecido (equivalente ao risco de qualquer
 sessão web JWT, comunicado à diretoria). Reavaliar só se o perfil de risco
 da oficina mudar (ex.: acesso público/compartilhado a estações de trabalho).
+
+## BR-041 — PDF de orçamento
+**Status:** DEFINIDA (ETAPA 6/P1-C — ORC-013/DOC-001/DOC-002)
+
+O orçamento pode ser emitido em documento (PDF) contendo identificação da
+empresa, número/versão legível, cliente, veículo, data, itens (quantidade,
+valor unitário, subtotal), desconto quando houver, valor total, observações
+e situação. Para orçamento com aprovação parcial, o documento apresenta
+claramente item aprovado/rejeitado/pendente, valor original, valor aprovado
+e valor rejeitado por item.
+
+**Implementação:** `rpc_dados_pdf_orcamento(p_orcamento_id)` (leitura,
+security invoker) devolve todos os dados de UMA versão específica do
+orçamento. Versionamento: cada versão é uma linha própria e imutável em
+`orcamentos` (já era assim desde a Fase 2 — `rpc_criar_versao_orcamento`
+nunca edita a versão anterior, só marca `status='substituido'` e insere uma
+linha nova) — chamar a função com o id da versão 1 continua reproduzindo o
+documento da versão 1 mesmo depois de existir versão 2+. A renderização em
+PDF em si acontece no frontend, a partir destes dados do backend. Ver
+`supabase/migrations/20260814111000_p1c_relatorios.sql`.
+
+## BR-042 — Cancelamento formal de item aprovado (orçamento e adicional)
+**Status:** DEFINIDA (ETAPA 6/P1-C, item 11 — estende BR-009/BR-026)
+
+Item já EXECUTADO (total ou parcialmente) nunca pode ser apagado ou
+transformado em cancelado/rejeitado — exigiria um procedimento formal de
+estorno de estoque, fora desta correção pontual. Item APROVADO mas ainda
+NÃO executado pode ser cancelado formalmente, com motivo obrigatório e
+auditoria. Item ainda PENDENTE de decisão pode ser rejeitado/cancelado pelo
+fluxo de decisão já existente (`rpc_decidir_item_orcamento`/
+`rpc_decidir_item_os_adicional`, ou `rpc_cancelar_os_adicional` para encerrar
+um adicional inteiro ainda aguardando aprovação). O valor da cobrança
+reflete só o que permanece aprovado e não cancelado
+(`execucao_status <> 'cancelado'`, filtrado tanto para item de orçamento
+quanto de adicional).
+
+**Implementação:** `rpc_marcar_item_orcamento_execucao` e
+`rpc_marcar_item_os_adicional_execucao` passam a bloquear a transição para
+`cancelado` quando `execucao_status` já é `executado` ou `parcial`.
+`rpc_criar_cobranca` exclui item com `execucao_status = 'cancelado'` da
+soma, para as duas origens. Ver
+`supabase/migrations/20260814110800_p1c_cancelamento_item_aprovado.sql`
+(e o lado do adicional, introduzido junto com o rateio de desconto, em
+`20260814110200_p1c_desconto_orcamento.sql`).
+
+---
+
+## Decisões formalizadas — ETAPA 6 (P1-C)
+
+Texto das 8 decisões de negócio do dono do projeto para esta etapa,
+preservado na íntegra (cada uma referenciada pela(s) BR(s) que resolve
+acima — esta seção é a fonte única para os 9 PENDENTE_DECISÃO fechados
+nesta rodada: **FIN-010, PEN-001, PEN-002, PEN-003, PEN-004, PEN-005,
+PEN-006, PEN-007, PEN-008**).
+
+**Decisão 1 — Cliente interno / OS interna** (resolve FIN-010, PEN-001, PEN-002; ver BR-036).
+OS de cliente interno NÃO gera cobrança financeira contra a própria
+empresa. Fluxo: OS INTERNA → execução → peças utilizadas → mão de obra →
+custo interno → centro de custo/apropriação gerencial. Não criar
+cobrança/parcela/recebimento fictício. A OS interna deve permitir apurar
+seu CUSTO TOTAL (custo das peças efetivamente utilizadas + mão de obra
+interna + outros custos internos estruturados no futuro se existirem). Não
+misturar custo interno com faturamento externo.
+
+**Decisão 2 — Custo da hora interna** (suporta BR-036/Decisão 1).
+Configuração administrativa para custo/hora interno da oficina (não
+hardcode). Configurável por administrador técnico conforme RBAC. Registra
+valor hora, vigência, alterado por, data/hora, histórico (nunca apaga
+valores históricos). O cálculo considera os apontamentos reais dos
+executores. Exemplo de referência: 2h30 × R$40,00/hora = R$100,00 de custo
+de mão de obra. Mudança futura no custo/hora não recalcula retroativamente
+uma OS já encerrada (snapshot do valor usado na hora).
+
+**Decisão 3 — Prazo da OS** (resolve PEN-003; ver BR-029).
+Sem faixas automáticas por valor nesta etapa. Prazo definido MANUALMENTE
+pelo encarregado. Campo estruturado (`previsao_conclusao`) registrando
+prazo/data prevista, definido_por, definido_em, alteração e motivo da
+alteração quando houver. Atualização auditada permitida enquanto a OS
+estiver em andamento.
+
+**Decisão 4 — Boleto** (resolve PEN-004; ver BR-037).
+Fora do escopo atual. PEN-004 registrado como `DECIDIDO —
+FORA_DO_ESCOPO_ATUAL`. Nenhum mock, tabela fictícia ou código incompleto
+criado.
+
+**Decisão 5 — Emissão fiscal/NF** (resolve PEN-005; ver BR-039).
+Fora do escopo atual. PEN-005 registrado como `DECIDIDO —
+FORA_DO_ESCOPO_ATUAL`. Nenhuma integração fiscal fictícia criada. A NF de
+ENTRADA de peças já existente permanece válida e não deve ser confundida
+com emissão fiscal de venda/serviço.
+
+**Decisão 6 — Fotos** (resolve PEN-006; ver BR-019).
+Fotos antes/depois da execução, permitidas para todas as OS;
+configuravelmente obrigatórias por tipo de serviço (nunca obrigatoriedade
+global). Configuração de tipo de serviço/checklist determina foto-antes-
+obrigatória (sim/não) e foto-depois-obrigatória (sim/não). Se obrigatória,
+conclusão bloqueia enquanto ausente; se não, conclui sem foto.
+
+**Decisão 7 — Descontos** (resolve PEN-007; ver BR-011).
+Desconto estruturado e auditável, sem hardcode de percentual máximo.
+Configuração: desconto habilitado, percentual máximo permitido, alterado
+por, vigência. Perfis autorizados a conceder desconto: encarregado,
+administrador_tecnico. Desconto exige percentual ou valor, motivo
+obrigatório, usuário, data/hora. Nunca valor final negativo. Dentro do teto
+→ permitido; acima do teto → bloqueado. Sem aprovação hierárquica adicional
+nesta etapa. Se o orçamento já foi aprovado pelo cliente e uma alteração de
+desconto modifica o valor comercial aprovado, exige nova versão/reaprovação
+— nunca altera silenciosamente valor previamente aprovado.
+
+**Decisão 8 — Termo de Ciência de Débito** (resolve PEN-008; ver BR-023).
+Estruturado formalmente: cliente_id, cobranca_id, OS relacionada(s), valor
+total reconhecido, responsável do cliente, documento/identificação do
+responsável quando informado, data de assinatura, registrado_por,
+arquivo_path, observação, criado_em. O arquivo deve existir no Storage
+antes do registro (DOC-005, reusado). O termo continua sendo alternativa
+válida para liberação quando pagamento não confirmado + termo válido
+registrado.
