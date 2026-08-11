@@ -83,6 +83,66 @@ export const PODE_CANCELAR_ADICIONAL = [PERFIS.ENCARREGADO, PERFIS.ADMINISTRADOR
 // Marcar execução de item aprovado do adicional (mão de obra) — rpc_marcar_item_os_adicional_execucao.
 export const PODE_MARCAR_EXECUCAO_ADICIONAL = [PERFIS.EXECUTOR, PERFIS.ENCARREGADO, PERFIS.ADMINISTRADOR_TECNICO]
 
+// ETAPA 6 (P1-C) — item 12: recursos novos (config administrativa, prazo,
+// desconto, fotos, custo interno, garantia de adicional, remoção de
+// executor, cancelamento formal de item, termo de ciência, relatórios).
+// Mesma disciplina das etapas anteriores: cada constante espelha a RPC
+// correspondente (comentada), e o backend continua sendo a autoridade real
+// (tem_perfil() em cada RPC, RLS nas tabelas de config) — este arquivo só
+// evita oferecer na UI uma ação que o backend recusaria.
+
+// Configuração administrativa: custo/hora, teto de desconto, limites de
+// anexo — só administrador_tecnico (rpc_definir_custo_hora /
+// rpc_definir_teto_desconto / rpc_definir_anexos_config /
+// rpc_definir_obrigatoriedade_fotos usa encarregado+administrador_tecnico,
+// ver constante própria abaixo).
+export const PODE_CONFIGURAR_CUSTO_HORA = [PERFIS.ADMINISTRADOR_TECNICO]
+export const PODE_CONFIGURAR_TETO_DESCONTO = [PERFIS.ADMINISTRADOR_TECNICO]
+export const PODE_CONFIGURAR_ANEXOS = [PERFIS.ADMINISTRADOR_TECNICO]
+// Ver custo/hora vigente (financeiro-like: nunca executor) — leitura de custo_hora_config/desconto_config.
+export const PODE_VER_CUSTO_HORA = [PERFIS.ENCARREGADO, PERFIS.SUPORTE_ADMINISTRATIVO, PERFIS.DIRETORIA, PERFIS.ADMINISTRADOR_TECNICO]
+
+// Centro de custo: cadastro simples — mesma autoridade de cadastros gerais.
+export const PODE_GERIR_CENTRO_CUSTO = [PERFIS.ENCARREGADO, PERFIS.SUPORTE_ADMINISTRATIVO, PERFIS.ADMINISTRADOR_TECNICO]
+
+// Prazo da OS — rpc_definir_previsao_conclusao.
+export const PODE_DEFINIR_PRAZO_OS = [PERFIS.ENCARREGADO, PERFIS.ADMINISTRADOR_TECNICO]
+
+// Desconto no orçamento (dentro do teto configurado) — rpc_aplicar_desconto_orcamento.
+export const PODE_CONCEDER_DESCONTO = [PERFIS.ENCARREGADO, PERFIS.ADMINISTRADOR_TECNICO]
+
+// Fotos da OS — rpc_registrar_foto_os. Executor participa (só na OS em que
+// atua — checado no backend), mas NUNCA configura obrigatoriedade.
+export const PODE_ANEXAR_FOTO_OS = [PERFIS.EXECUTOR, PERFIS.ENCARREGADO, PERFIS.SUPORTE_ADMINISTRATIVO, PERFIS.ADMINISTRADOR_TECNICO]
+export const PODE_CONFIGURAR_OBRIGATORIEDADE_FOTO = [PERFIS.ENCARREGADO, PERFIS.ADMINISTRADOR_TECNICO]
+
+// Centro de custo da OS interna — rpc_definir_centro_custo_os.
+export const PODE_DEFINIR_CENTRO_CUSTO_OS = [PERFIS.ENCARREGADO, PERFIS.ADMINISTRADOR_TECNICO]
+
+// Garantia de item de adicional — mesma autoridade de BR-024 (rpc_criar_os_garantia).
+export const PODE_ABRIR_GARANTIA_ADICIONAL = [PERFIS.ENCARREGADO, PERFIS.ADMINISTRADOR_TECNICO]
+
+// Remoção formal de executor — rpc_remover_executor_os. Nunca o próprio
+// executor (encerrar a própria participação exige encarregado/admin).
+export const PODE_REMOVER_EXECUTOR = [PERFIS.ENCARREGADO, PERFIS.ADMINISTRADOR_TECNICO]
+
+// Cancelamento formal de item aprovado ainda não executado (orçamento ou
+// adicional) — rpc_marcar_item_orcamento_execucao / _adicional_execucao
+// com status='cancelado'. Executor aponta execução mas não cancela item
+// aprovado (decisão comercial, não técnica).
+export const PODE_CANCELAR_ITEM_APROVADO = [PERFIS.ENCARREGADO, PERFIS.ADMINISTRADOR_TECNICO]
+
+// Termo de Ciência de Débito — rpc_registrar_termo_ciencia (suporte
+// administrativo trata financeiro/documentos, sem alteração técnica).
+export const PODE_REGISTRAR_TERMO_CIENCIA = [PERFIS.ENCARREGADO, PERFIS.SUPORTE_ADMINISTRATIVO, PERFIS.ADMINISTRADOR_TECNICO]
+
+// Relatórios (encerramento/garantia/histórico de veículo/PDF de orçamento)
+// — funções de leitura (security invoker); qualquer perfil ativo pode
+// chamar a RPC, mas o CONTEÚDO retornado já respeita a RLS de cada tabela
+// agregada para quem chama (ex.: executor nunca recebe valor de cobrança,
+// porque a policy de 'cobrancas' já bloqueia SELECT para executor).
+export const PODE_VER_RELATORIOS = [PERFIS.EXECUTOR, PERFIS.ENCARREGADO, PERFIS.SUPORTE_ADMINISTRATIVO, PERFIS.DIRETORIA, PERFIS.ADMINISTRADOR_TECNICO]
+
 export function temPerfil(perfilAtual, listaPermitida) {
   return !!perfilAtual && listaPermitida.includes(perfilAtual)
 }
