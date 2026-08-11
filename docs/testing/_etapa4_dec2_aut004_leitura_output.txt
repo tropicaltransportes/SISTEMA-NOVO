@@ -1,0 +1,66 @@
+############################################
+# INATIVO (teste.inativo, ativo=false) deve ser BLOQUEADO em TODAS as áreas
+############################################
+
+--- INATIVO le clientes ---
+HTTP 200
+[]
+
+--- INATIVO le veiculos ---
+HTTP 200
+[]
+
+--- INATIVO le orcamentos ---
+HTTP 200
+[]
+
+--- INATIVO le ordens_servico ---
+HTTP 200
+[]
+
+--- INATIVO le pecas (estoque) ---
+HTTP 200
+[]
+
+--- INATIVO le estoque_movimentos ---
+HTTP 200
+[]
+
+--- INATIVO le cobrancas (financeiro) ---
+HTTP 200
+[]
+
+--- INATIVO le proprio profile ---
+HTTP 200
+[]
+
+--- INATIVO tenta inserir cliente (escrita) ---
+HTTP 200
+[]
+--- INATIVO tenta inserir cliente (POST real) ---
+HTTP 403
+sed: -e expression #1, char 3: unterminated address regex
+
+############################################
+# CONTROLE: EXECUTOR ativo continua lendo normalmente (não pode virar bloqueio geral por engano)
+############################################
+
+--- EXECUTOR (ativo) le ordens_servico ---
+HTTP 200
+[{"id":"23e2e6e9-3d6d-4949-bc99-5bb80d5f1da7","status":"em_execucao"}, 
+ {"id":"1f31304a-f4da-4cc7-ade6-5994f41d58ba","status":"em_execucao"}, 
+ {"id":"2c07926e-cf6a-4be0-bb31-7fb9206ec0cf","status":"reaberta_garantia"}]
+
+--- EXECUTOR (ativo) le clientes ---
+HTTP 200
+[{"id":"ed6af960-5b0a-450c-83c5-d976d891e108","nome":"Tropical Transportes (Frota Própria)"}, 
+ {"id":"faf27a7f-0ee8-4edd-be1e-6e3981b88e33","nome":"Cliente Teste Financeiro"}, 
+ {"id":"3c3e37ea-4e05-4c07-b18f-07502e42320f","nome":"Transportadora Fluxo Teste Ltda"}]
+
+--- ENCARREGADO (ativo) le orcamentos ---
+HTTP 200
+[{"id":"a83eca48-4a4f-41a1-bfdd-9170f0430df0","status":"substituido"}, 
+ {"id":"843e1b64-6d06-4efd-b5a5-e66a06fcaac7","status":"substituido"}, 
+ {"id":"cc9e6423-d4f6-4c6e-8a1e-95d14f7904cf","status":"enviado"}]
+
+=== FIM — esperado: todas as chamadas de INATIVO retornam HTTP 200 com corpo [] (RLS filtra sem erro de rede, mas 0 linhas / insert bloqueado com erro); EXECUTOR/ENCARREGADO continuam com dados normais ===

@@ -68,12 +68,20 @@ async function carregar() {
 const dialogoNovoAberto = ref(false)
 const salvandoNovo = ref(false)
 const formNovo = ref({ veiculo_id: null, solicitacao_id: null })
+// ORC-016: chave de idempotência gerada uma única vez por abertura do
+// formulário e reaproveitada em qualquer retry (clique duplo ou retry de
+// rede) — protegida de verdade pelo índice único parcial
+// ux_orcamentos_client_request_id no backend (não depende só do botão
+// desabilitado, que não segura um retry de rede real). Só é trocada quando
+// o diálogo é reaberto do zero (abrirNovo) ou depois de sucesso.
+let clientRequestId = crypto.randomUUID()
 
 function abrirNovo() {
   formNovo.value = {
     veiculo_id: route.query.veiculo_id || null,
     solicitacao_id: route.query.solicitacao_id || null,
   }
+  clientRequestId = crypto.randomUUID()
   dialogoNovoAberto.value = true
 }
 
@@ -82,6 +90,7 @@ async function criarRascunho() {
     toast.add({ severity: 'warn', summary: 'Selecione o veículo', life: 4000 })
     return
   }
+  if (salvandoNovo.value) return // trava extra de UI contra duplo clique; a garantia real é o backend
   const veiculo = veiculos.value.find((v) => v.id === formNovo.value.veiculo_id)
   salvandoNovo.value = true
   const { data, error } = await supabase
@@ -91,16 +100,35 @@ async function criarRascunho() {
       cliente_id: veiculo.cliente_id,
       solicitacao_id: formNovo.value.solicitacao_id || null,
       criado_por: auth.profile.id,
+      client_request_id: clientRequestId,
     })
     .select('id')
     .single()
   salvandoNovo.value = false
   if (error) {
+    if (error.code === '23505') {
+      // Retry/duplo clique real: a 1ª tentativa (desta ou de outra aba/requisição
+      // concorrente) já criou o orçamento com esta chave — busca o registro
+      // existente em vez de mostrar erro ou deixar o usuário tentar de novo.
+      const { data: existente } = await supabase
+        .from('orcamentos')
+        .select('id')
+        .eq('client_request_id', clientRequestId)
+        .single()
+      if (existente) {
+        toast.add({ severity: 'info', summary: 'Orçamento já criado', detail: 'Esta submissão já havia sido processada.', life: 4000 })
+        dialogoNovoAberto.value = false
+        await carregar()
+        abrirItens(orcamentos.value.find((o) => o.id === existente.id))
+        return
+      }
+    }
     toast.add({ severity: 'error', summary: 'Erro ao criar orçamento', detail: error.message, life: 5000 })
     return
   }
   toast.add({ severity: 'success', summary: 'Orçamento criado em rascunho', life: 3000 })
   dialogoNovoAberto.value = false
+  clientRequestId = crypto.randomUUID()
   if (route.query.solicitacao_id) router.replace({ path: '/orcamentos' })
   await carregar()
   abrirItens(orcamentos.value.find((o) => o.id === data.id))

@@ -98,11 +98,16 @@ insert into clientes (id, tipo, nome, documento, telefone, email) values
   ('b0000000-0000-0000-0000-000000000003', 'externo', 'TESTE_Cliente_Inadimplente', '22222222000102', '(11) 90000-0003', 'contato@testeinadimplente.qa'),
   ('b0000000-0000-0000-0000-000000000004', 'externo', 'TESTE_Cliente_Garantia', '33333333000103', '(11) 90000-0004', 'contato@testegarantia.qa'),
   ('b0000000-0000-0000-0000-000000000005', 'externo', 'TESTE_Cliente_Duplicidade_A', '44444444000104', '(11) 90000-0005', 'a@testeduplicidade.qa'),
-  ('b0000000-0000-0000-0000-000000000006', 'externo', 'TESTE_Cliente_Duplicidade_B', '44444444000104', '(11) 90000-0006', 'b@testeduplicidade.qa');
--- Nota CAD-004: b...05 e b...06 têm o MESMO documento de propósito — não há
--- unique constraint em clientes.documento (achado FALHOU da 1ª auditoria);
--- este INSERT prova isso de novo por execução real (se falhasse aqui, o
--- achado estaria errado).
+  ('b0000000-0000-0000-0000-000000000006', 'externo', 'TESTE_Cliente_Duplicidade_B', '44444444000105', '(11) 90000-0006', 'b@testeduplicidade.qa');
+-- Nota CAD-004 (ETAPA 4 P1-A): b...05 e b...06 tinham PROPOSITALMENTE o
+-- MESMO documento até a ETAPA 3, para provar por execução real que não
+-- havia unique constraint (achado FALHOU, ver TEST_REPORT_EXECUTION_02.md).
+-- A partir da ETAPA 4 existe uq_clientes_documento_normalizado_ativo (ver
+-- 20260812091000_p1a_cad004_documento_unico.sql) — manter os dois com o
+-- mesmo documento aqui quebraria o seed (23505). b...06 passou a usar um
+-- documento distinto (só o último dígito muda); o cenário de duplicidade em
+-- si continua coberto por teste real, criando os dois registros em tempo de
+-- execução (docs/testing/scripts/etapa4_cad004_orc016.sh), não mais via seed.
 
 -- ============================================================
 -- 3) VEÍCULOS (placas ficticias, prefixo TST)

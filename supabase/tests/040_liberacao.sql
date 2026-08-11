@@ -2,7 +2,7 @@
 -- Monta OS externas concluídas idênticas, cada uma variando só a condição
 -- financeira, e confirma que rpc_liberar_os segue exatamente BR-023.
 begin;
-select plan(3);
+select plan(4);
 
 -- Helper local: cria orçamento aprovado simples e a OS externa já 'concluida'.
 -- Precisa ser criada ANTES de trocar de papel (CREATE FUNCTION no schema
@@ -34,14 +34,32 @@ insert into clientes (id, tipo, nome) values ('66666666-6666-6666-6666-666666666
 insert into veiculos (id, cliente_id, placa) values ('77777777-7777-7777-7777-777777777777', '66666666-6666-6666-6666-666666666666', 'PGTAP003');
 
 -- LIB-002: termo de ciência de débito, sem pagamento -> liberação permitida.
+-- ETAPA 4 (P1-A)/DOC-005: rpc_registrar_termo_ciencia agora valida que o
+-- objeto existe de fato em storage.objects (ver
+-- 20260812097000_p1a_doc005_valida_storage.sql) — este teste roda só em SQL
+-- (sem passar pela API de Storage), então precisa inserir a linha
+-- correspondente em storage.objects para simular o upload real antes de
+-- chamar a RPC, senão o teste passaria a falhar por um motivo NOVO e
+-- correto (path inexistente), não relacionado ao que LIB-002 verifica.
 do $$
 declare v_os uuid; v_cob uuid;
 begin
   v_os := tests._preparar_os_concluida('LIB002');
   v_cob := rpc_criar_cobranca('66666666-6666-6666-6666-666666666666'::uuid, array[v_os], null);
-  perform rpc_registrar_termo_ciencia(v_cob, 'termos/pgtap-teste.pdf');
+  insert into storage.objects (bucket_id, name) values ('comprovantes', 'termos/pgtap-teste-' || v_cob::text || '.pdf');
+  perform rpc_registrar_termo_ciencia(v_cob, 'termos/pgtap-teste-' || v_cob::text || '.pdf');
   perform rpc_liberar_os(v_os);
   perform set_config('tests.lib002_os', v_os::text, true);
+end $$;
+
+-- DOC-005 (ETAPA 4 P1-A): path que não existe no Storage deve ser rejeitado
+-- pela mesma RPC, mesmo com todos os outros dados válidos.
+do $$
+declare v_os uuid; v_cob uuid;
+begin
+  v_os := tests._preparar_os_concluida('DOC005');
+  v_cob := rpc_criar_cobranca('66666666-6666-6666-6666-666666666666'::uuid, array[v_os], null);
+  perform set_config('tests.doc005_cobranca', v_cob::text, true);
 end $$;
 
 -- LIB-001: cobrança quitada -> liberação permitida.
@@ -73,6 +91,12 @@ select is(
   (select status from ordens_servico where id = current_setting('tests.lib001_os')::uuid),
   'liberada',
   'LIB-001: liberação com cobrança quitada deve ser permitida'
+)
+union all
+select throws_ok(
+  format('select rpc_registrar_termo_ciencia(%L, %L)', current_setting('tests.doc005_cobranca')::uuid, 'caminho/inexistente-doc005.pdf'),
+  'P0001', null,
+  'DOC-005: termo com path inexistente no Storage deve ser rejeitado'
 );
 
 rollback;

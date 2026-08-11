@@ -1,0 +1,132 @@
+############################################
+# F (CON-007): apontamento nao editavel apos OS encerrada; correcao formal auditada
+############################################
+
+--- cria OS interna exclusiva ---
+HTTP 200
+"f262f6e7-2b16-4698-a3b1-e44986bc292d"
+OS=f262f6e7-2b16-4698-a3b1-e44986bc292d
+
+--- EXECUTOR cria apontamento ---
+HTTP 201
+[{"id":"b6a219f0-1adb-4869-87bc-29baa51e8530","os_id":"f262f6e7-2b16-4698-a3b1-e44986bc292d","usuario_id":"a0000000-0000-0000-0000-000000000001","etapa":"diagnostico","inicio":"2026-08-12T10:00:00+00:00","fim":null,"observacao":"inicio"}]
+EXEC_ID=b6a219f0-1adb-4869-87bc-29baa51e8530
+
+--- EXECUTOR edita o proprio apontamento -- OS ainda aberta, deve PASSAR ---
+HTTP 200
+[{"id":"b6a219f0-1adb-4869-87bc-29baa51e8530","os_id":"f262f6e7-2b16-4698-a3b1-e44986bc292d","usuario_id":"a0000000-0000-0000-0000-000000000001","etapa":"diagnostico","inicio":"2026-08-12T10:00:00+00:00","fim":null,"observacao":"editado enquanto aberta"}]
+
+--- define checklist ---
+HTTP 204
+
+
+--- aberta->em_diagnostico ---
+HTTP 204
+
+
+--- em_diagnostico->em_execucao ---
+HTTP 204
+
+
+--- em_execucao->aguardando_teste ---
+HTTP 204
+
+
+--- responde checklist obrigatorio ---
+HTTP 201
+[{"id":"4c0eb89f-4c38-4dc4-84e7-db6db7a7dd4e","os_id":"f262f6e7-2b16-4698-a3b1-e44986bc292d","template_item_id":"20000000-0000-0000-0000-000000000011","ok":true,"respondido_por":"a0000000-0000-0000-0000-000000000001","respondido_em":"2026-08-12T00:00:00+00:00"}]
+
+--- conclui OS ---
+HTTP 204
+
+--- status da OS apos concluir ---
+[{"status":"concluida"}]
+
+--- EXECUTOR tenta editar o MESMO apontamento apos OS CONCLUIDA -- deve BLOQUEAR (0 linhas) ---
+HTTP 200
+[]
+
+--- confirma que observacao NAO mudou ---
+HTTP 200
+[{"observacao":"editado enquanto aberta"}]
+
+--- ENCARREGADO tenta rpc_corrigir_apontamento SEM motivo -- deve BLOQUEAR ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Correção de apontamento exige motivo (mínimo de 5 caracteres) — ação auditável"}
+
+--- ENCARREGADO corrige via RPC formal COM motivo -- deve PASSAR (auditado) ---
+HTTP 204
+
+
+--- confirma correcao aplicada ---
+HTTP 200
+[{"observacao":"corrigido apos deteccao de horario errado"}]
+
+--- confirma trilha de auditoria da correcao ---
+HTTP 200
+[{"acao":"correcao_apontamento","motivo":"Executor esqueceu de preencher observacao correta antes da OS ser concluida","valor_anterior":{"fim": null, "observacao": "editado enquanto aberta"},"valor_novo":{"fim": null, "observacao": "corrigido apos deteccao de horario errado"}}]
+
+############################################
+# G (GAR-005): vinculo de garantia com item original; sem vinculo bloqueia
+############################################
+
+--- tenta abrir garantia SEM informar itens (OS original tem orcamento) -- deve BLOQUEAR ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Informe ao menos um item da OS original (p_itens_originais) — garantia sem vínculo com item/serviço original não é permitida"}
+
+--- abre garantia COM item original vinculado -- deve PASSAR ---
+HTTP 200
+"0a9bc2df-4965-4917-a715-243b61077585"
+OS_GARANTIA=0a9bc2df-4965-4917-a715-243b61077585
+
+--- confirma vinculo em os_garantia_itens ---
+HTTP 200
+[{"orcamento_item_original_id":"bbeec7c0-fa1f-461d-8961-a7cdbd605c78","motivo":"Retorno em garantia (90 dias) do item da OS f0000000-0000-0000-0000-000000000006"}]
+
+--- transiciona garantia p/ em_diagnostico ---
+HTTP 204
+
+
+--- tenta baixar peca NAO vinculada a este item de garantia (peca diferente, informando o item certo) ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Peça informada não corresponde ao item original coberto pela garantia"}
+^^^ esperado: bloqueado (peca nao bate com o item original)
+
+--- baixa a peca CORRETA vinculada ao item original da garantia -- deve PASSAR ---
+HTTP 204
+
+
+############################################
+# I (DOC-005): comprovante/termo so aceito se objeto existe no Storage
+############################################
+
+--- cria orcamento novo p/ testar autorizacao ---
+HTTP 201
+[{"id":"7f66123b-a363-49f2-8c78-40d04c0034df","solicitacao_id":null,"veiculo_id":"c0000000-0000-0000-0000-000000000001","cliente_id":"b0000000-0000-0000-0000-000000000001","orcamento_raiz_id":null,"versao":1,"status":"rascunho","valor_total":0.00,"autorizado_por_nome":null,"autorizado_em":null,"comprovante_path":null,"criado_por":"a0000000-0000-0000-0000-000000000002","criado_em":"2026-08-11T15:27:30.276697+00:00","client_request_id":null}]
+
+--- item obrigatorio ---
+HTTP 201
+[{"id":"11b98157-8cd1-43e1-bc7b-e7efe0049acf","orcamento_id":"7f66123b-a363-49f2-8c78-40d04c0034df","peca_id":null,"descricao":"TESTE item doc005","quantidade":1.000,"valor_unitario":10.00,"valor_total":10.00,"execucao_status":"pendente"}]
+
+--- envia orcamento ---
+HTTP 204
+
+
+--- tenta registrar autorizacao com path INEXISTENTE no storage -- deve BLOQUEAR ---
+HTTP 400
+{"code":"P0001","details":null,"hint":null,"message":"Comprovante informado não foi encontrado no Storage (bucket comprovantes, path caminho/que-nao-existe-p1a-doc005.pdf) — envie o arquivo antes de registrar a autorização"}
+--- upload real de um arquivo no bucket comprovantes ---
+upload -> HTTP 200
+PATH_REAL=p1a-doc005/1786462051-comprovante.txt
+
+--- registra autorizacao com path REAL (existe no storage) -- deve PASSAR ---
+HTTP 204
+
+--- remove o objeto do storage (simula race: documento removido antes de outro uso) ---
+{"statusCode":"403","error":"Unauthorized","message":"Access denied","code":"AccessDenied"}
+
+--- tenta reusar o MESMO path (agora removido) num termo de ciencia -- deve BLOQUEAR ---
+HTTP 204
+
+
+=== FIM ===

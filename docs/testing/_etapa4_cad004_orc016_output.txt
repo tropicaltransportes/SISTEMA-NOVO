@@ -1,0 +1,54 @@
+############################################
+# CAD-004 — documento duplicado (normalizado)
+############################################
+
+--- cria cliente A com documento 55555555000199 ---
+HTTP 201
+[{"id":"332ea28f-7b71-48c1-aa53-8ffb4fe78f49","tipo":"externo","nome":"TESTE_P1A_CAD004_A","documento":"55555555000199","telefone":null,"email":null,"deleted_at":null}]
+CLI_A=332ea28f-7b71-48c1-aa53-8ffb4fe78f49
+
+--- tenta criar cliente B com o MESMO documento (identico) ---
+HTTP 409
+{"code":"23505","details":null,"hint":null,"message":"duplicate key value violates unique constraint \"uq_clientes_documento_normalizado_ativo\""}
+^^^ esperado: HTTP 409 (conflict), nenhum cliente criado
+
+--- tenta criar cliente C com o MESMO documento, MASCARA diferente (pontuacao) ---
+HTTP 409
+{"code":"23505","details":null,"hint":null,"message":"duplicate key value violates unique constraint \"uq_clientes_documento_normalizado_ativo\""}
+^^^ esperado: HTTP 409 (mesmo documento normalizado, mascara diferente)
+
+--- cria cliente D com documento nulo (permitido, cliente interno) ---
+HTTP 201
+[{"id":"082ec6a6-4c07-484e-89b8-915a00167615","tipo":"interno","nome":"TESTE_P1A_CAD004_D_SEMDOC","documento":null,"telefone":null,"email":null,"deleted_at":null}]
+
+--- cria cliente E TAMBEM com documento nulo (deve ser permitido, nulo nao concorre) ---
+HTTP 201
+[{"id":"a2e6cb15-ddc5-4ae7-ae15-4b7700a4ab0b","tipo":"interno","nome":"TESTE_P1A_CAD004_E_SEMDOC","documento":null,"telefone":null,"email":null,"deleted_at":null}]
+^^^ esperado: ambos HTTP 201 (documento nulo nunca bloqueia)
+--- inativa cliente A ---
+
+--- inativa cliente A (deleted_at) ---
+HTTP 200
+[{"id":"332ea28f-7b71-48c1-aa53-8ffb4fe78f49","tipo":"externo","nome":"TESTE_P1A_CAD004_A","documento":"55555555000199","telefone":null,"email":null,"deleted_at":"2026-08-12T00:00:00+00:00"}]
+
+--- agora cria cliente F com o MESMO documento do A (que esta INATIVO) -> deve ser PERMITIDO ---
+HTTP 201
+[{"id":"36bcda34-d10d-4359-bdde-02ba5be83604","tipo":"externo","nome":"TESTE_P1A_CAD004_F_REATIVA_DOC","documento":"55555555000199","telefone":null,"email":null,"deleted_at":null}]
+^^^ esperado: HTTP 201 (cliente inativo nao bloqueia reaproveitamento do documento)
+
+############################################
+# ORC-016 — duplo submit de orcamento (2 chamadas paralelas, mesma client_request_id)
+############################################
+client_request_id=a9a0d968-3312-4329-8b95-c67414089c51
+VEICULO_ID=058b5031-8752-43c3-a3dd-a6dbe959a1fa CLIENTE_ID=faf27a7f-0ee8-4edd-be1e-6e3981b88e33
+chamada 1 -> HTTP 403 | corpo: {"code":"42501","details":null,"hint":null,"message":"new row violates row-level security policy for table \"orcamentos\""}
+chamada 2 -> HTTP 403 | corpo: {"code":"42501","details":null,"hint":null,"message":"new row violates row-level security policy for table \"orcamentos\""}
+--- confirma no banco: quantos orcamentos existem com essa client_request_id? (deve ser exatamente 1) ---
+[]
+=== FIM ===
+client_request_id=87d4e0c9-ff1a-46b8-bbd0-deeff34bb16b
+VEICULO_ID=058b5031-8752-43c3-a3dd-a6dbe959a1fa CLIENTE_ID=faf27a7f-0ee8-4edd-be1e-6e3981b88e33
+chamada 1 -> HTTP 201 | corpo: [{"id":"68211711-eb36-4e48-96ca-a85e67dc6ade","solicitacao_id":null,"veiculo_id":"058b5031-8752-43c3-a3dd-a6dbe959a1fa","cliente_id":"faf27a7f-0ee8-4edd-be1e-6e3981b88e33","orcamento_raiz_id":null,"versao":1,"status":"rascunho","valor_total":0.00,"autorizado_por_nome":null,"autorizado_em":null,"comprovante_path":null,"criado_por":"a0000000-0000-0000-0000-000000000002","criado_em":"2026-08-11T15:15:51.826158+00:00","client_request_id":"87d4e0c9-ff1a-46b8-bbd0-deeff34bb16b"}]
+chamada 2 -> HTTP 409 | corpo: {"code":"23505","details":null,"hint":null,"message":"duplicate key value violates unique constraint \"ux_orcamentos_client_request_id\""}
+--- confirma no banco ---
+[{"id":"68211711-eb36-4e48-96ca-a85e67dc6ade","client_request_id":"87d4e0c9-ff1a-46b8-bbd0-deeff34bb16b"}]
