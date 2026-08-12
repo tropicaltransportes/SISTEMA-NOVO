@@ -39,13 +39,28 @@ escopo desta rodada, que é só de homologação).
 
 ## Continuidade operacional
 
-- [ ] Backup configurado — confirmar retenção/frequência do backup
-      automático do plano contratado + procedimento de backup lógico
-      documentado em `docs/PRODUCTION_BACKUP_RESTORE.md`
-- [ ] Restore documentado — `docs/PRODUCTION_BACKUP_RESTORE.md` revisado
-      pelo responsável técnico antes do go-live (restore real ainda não
-      testado em produção, só o mecanismo de rebuild via migrations, ver
-      seção 7 do relatório RC1)
+- [x] Backup configurado (parcial) — backup lógico real **executado** na
+      ETAPA 8 (RC2) contra DEV/QA (schema via migrations + dados via REST,
+      ver `docs/testing/TEST_REPORT_RC2.md` seção 5). **Achado importante**:
+      `npx supabase db dump --linked` (o comando recomendado em
+      `docs/PRODUCTION_BACKUP_RESTORE.md`) **não funciona sem Docker Desktop
+      ou `pg_dump` instalado localmente** — confirmado por execução real
+      nesta rodada, não só suposição. Antes do go-live, garantir que a
+      máquina/pipeline responsável pelo backup de produção tenha Docker ou
+      `pg_dump` disponível, ou usar o método alternativo (schema =
+      migrations, dados = REST API) documentado no RC2. Ainda falta
+      confirmar retenção/frequência do backup automático do plano Supabase
+      contratado.
+- [ ] Restore documentado, **mas não testado ponta a ponta** —
+      `docs/PRODUCTION_BACKUP_RESTORE.md` revisado pelo responsável técnico
+      antes do go-live. Restore real ficou **BLOQUEADO** na ETAPA 8 (RC2)
+      por falta de Docker/Postgres local e por não ser autorizado criar um
+      projeto Supabase novo nessa rodada (ver
+      `docs/testing/TEST_REPORT_RC2.md` seção 6) — **risco operacional
+      explícito**, não validado. Só o mecanismo de rebuild de **schema**
+      via migrations foi comprovado (RC1, seção 7). Antes do go-live,
+      executar um restore real de **dados** em ambiente descartável pelo
+      menos uma vez.
 
 ## Validação pré-go-live
 
