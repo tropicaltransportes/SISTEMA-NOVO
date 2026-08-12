@@ -1,6 +1,35 @@
-# Testes de backend (pgTAP) — status: infraestrutura criada, NÃO executada
+# Testes de backend (pgTAP) — status: EXECUTADOS de verdade (ETAPA 7 / RC1)
 
-## Por que não foram executados
+## Atualização RC1 (homologação final)
+
+A partir da ETAPA 7 (RC1) esta suíte passou a ser executada de verdade
+contra o projeto Supabase de DEV/QA autorizado (`jzjbiejmcaygwycvqggm`), sem
+Docker, usando `npx supabase db query --linked -f <arquivo>` (o mecanismo
+real disponível neste ambiente — `supabase test db` continua exigindo
+Docker/banco local e não foi usado). Cada arquivo roda dentro de
+`begin; ... rollback;`, então nenhum dado de teste fica residual no banco.
+
+Resultado da execução real (ver `docs/testing/TEST_REPORT_RC1.md` para o
+detalhe completo): 6 arquivos, 44 assertions, 0 falhas.
+
+- `010_seguranca_permissao_anon_bypass.sql` — 6/6 ok (o bug que este arquivo
+  reproduzia foi corrigido em `20260810160000_p0_correcoes_criticas.sql`;
+  hoje todas as asserções PASSAM, confirmando que a correção continua de pé).
+- `020_estoque.sql` — 6/6 ok.
+- `030_orcamento.sql` — 4/4 ok.
+- `040_liberacao.sql` — 4/4 ok.
+- `050_regressao_garantia.sql` (REG-GAR-001, novo na RC1) — 4/4 ok.
+- `060_contratos_rpc_criticas.sql` (novo na RC1) — 20/20 ok.
+
+Concorrência real (duas sessões HTTP simultâneas de verdade, EST-016 e
+GAR-008) não é modelada em pgTAP puro (pgTAP roda numa única
+transação/sessão) — coberta por scripts dedicados em
+`docs/testing/scripts/etapa7_concorrencia_*.sh`, não por este diretório.
+
+## Texto original da auditoria (ETAPA 1) — por que não foram executados então
+
+Nesta seção o texto abaixo é preservado como registro histórico; a situação
+descrita não se aplica mais a partir da ETAPA 7 (ver acima).
 
 O CLAUDE.md deste projeto exige banco exclusivo de teste antes de qualquer
 teste destrutivo, e bloqueia a execução se isso não puder ser confirmado.

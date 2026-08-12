@@ -57,7 +57,11 @@ begin
   v_os := tests._preparar_os_concluida('LIB002');
   v_cob := rpc_criar_cobranca('66666666-6666-6666-6666-666666666666'::uuid, array[v_os], null);
   insert into storage.objects (bucket_id, name) values ('comprovantes', 'termos/pgtap-teste-' || v_cob::text || '.pdf');
-  perform rpc_registrar_termo_ciencia(v_cob, 'termos/pgtap-teste-' || v_cob::text || '.pdf');
+  -- RC1: rpc_registrar_termo_ciencia(uuid, text) (2 params) foi removida em
+  -- 20260815120000_rc1_fix_overload_orfao_termo_ciencia.sql (overload órfão
+  -- que contornava a Decisão 8 — ver o comentário na própria migration).
+  -- Assinatura única agora exige p_responsavel_nome.
+  perform rpc_registrar_termo_ciencia(v_cob, 'termos/pgtap-teste-' || v_cob::text || '.pdf', 'PGTAP Responsável Teste', '000.000.000-00', null);
   perform rpc_liberar_os(v_os);
   perform set_config('tests.lib002_os', v_os::text, true);
 end $$;
@@ -104,7 +108,7 @@ select is(
 )
 union all
 select throws_ok(
-  format('select rpc_registrar_termo_ciencia(%L, %L)', current_setting('tests.doc005_cobranca')::uuid, 'caminho/inexistente-doc005.pdf'),
+  format('select rpc_registrar_termo_ciencia(%L, %L, %L, %L, %L)', current_setting('tests.doc005_cobranca')::uuid, 'caminho/inexistente-doc005.pdf', 'PGTAP Responsável Teste', '000.000.000-00', null),
   'P0001', null,
   'DOC-005: termo com path inexistente no Storage deve ser rejeitado'
 );

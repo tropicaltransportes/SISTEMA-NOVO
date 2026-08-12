@@ -1,0 +1,36 @@
+-- RC1 (Homologação Final) — correção de defeito encontrado pelos testes de
+-- contrato das RPCs críticas (seção 6 do roteiro de homologação).
+--
+-- Achado: `rpc_registrar_termo_ciencia` tinha DUAS assinaturas coexistindo
+-- no banco:
+--   1) (p_cobranca_id uuid, p_arquivo_path text)                         -- original, 20260806140000
+--   2) (p_cobranca_id uuid, p_arquivo_path text, p_responsavel_nome text,
+--       p_responsavel_documento text default null, p_observacao text default null) -- 20260814110900 (Decisão 8, P1-C)
+--
+-- `create or replace function` NÃO substitui uma função quando a lista de
+-- parâmetros muda — o Postgres cria uma segunda função por overload. A
+-- migration 20260814110900_p1c_termo_ciencia_extensao.sql adicionou a nova
+-- assinatura (exigindo responsável nome/documento, conforme a Decisão 8),
+-- mas nunca removeu a antiga. As duas ficaram com GRANT EXECUTE para
+-- `anon`/`authenticated`.
+--
+-- Risco real: qualquer chamador com perfil permitido
+-- (encarregado/suporte_administrativo/administrador_tecnico) podia registrar
+-- um Termo de Ciência de Débito chamando a RPC só com
+-- `p_cobranca_id`/`p_arquivo_path` — a assinatura antiga aceita e grava a
+-- linha com `responsavel_nome`, `responsavel_documento`, `valor_reconhecido`
+-- e `registrado_por` todos NULL (colunas nullable) e SEM registrar
+-- auditoria, contornando silenciosamente a Decisão 8 (responsabilização
+-- estruturada) sempre que o chamador não passasse os 3 parâmetros extras —
+-- isso inclui qualquer chamada direta à API REST (PostgREST resolve o
+-- overload pelos parâmetros efetivamente enviados no corpo JSON), não só o
+-- frontend (que já usa exclusivamente a assinatura nova desde a correção
+-- registrada em TEST_REPORT_P1C.md seção 7).
+--
+-- Verificado: nenhuma outra RPC do schema public tem overloads duplicados
+-- (checado via pg_proc agrupado por proname nesta rodada) — caso isolado.
+--
+-- Correção: remove a assinatura antiga. A assinatura nova (com
+-- p_responsavel_nome obrigatório) passa a ser a única.
+
+drop function if exists public.rpc_registrar_termo_ciencia(uuid, text);
