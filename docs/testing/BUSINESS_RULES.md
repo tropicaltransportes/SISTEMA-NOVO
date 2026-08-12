@@ -817,3 +817,40 @@ arquivo_path, observação, criado_em. O arquivo deve existir no Storage
 antes do registro (DOC-005, reusado). O termo continua sendo alternativa
 válida para liberação quando pagamento não confirmado + termo válido
 registrado.
+
+## BR-043 — Política de exclusão de arquivos (Storage)
+**Status:** DEFINIDA (ETAPA 8/RC2, seção 4 — formalização de comportamento
+já existente desde BR-040/DOC-005/DOC-006, não é funcionalidade nova)
+
+**Regra:** arquivos operacionais (comprovantes no bucket `comprovantes`,
+fotos de OS no bucket `os-fotos`) **não devem ser apagados fisicamente pelo
+usuário — nenhum perfil, inclusive administrador_tecnico.** A ausência de
+exclusão física preserva rastreabilidade/evidência: um comprovante de
+autorização de orçamento, um termo de ciência de débito, ou uma foto de
+antes/depois de OS são evidência de uma decisão de negócio já tomada
+(BR-040), e apagar o objeto quebraria a garantia (mitigada, não absoluta —
+ver BR-040) de que todo `comprovante_path`/`arquivo_path` referenciado por
+um registro no banco continua correspondendo a um objeto real no Storage.
+
+**Estado atual confirmado nesta rodada (RC2):** nenhuma migration deste
+projeto cria policy de `DELETE` em `storage.objects` para os buckets
+`comprovantes` ou `os-fotos` — a ausência de policy de DELETE é, por padrão
+do Supabase Storage (RLS fail-closed), equivalente a proibir a exclusão
+para todos os papéis, incluindo `administrador_tecnico`. Isso já era descrito
+en passant em BR-040 (linha "não existe nenhuma policy de DELETE em
+`storage.objects` para o bucket `comprovantes`"); esta seção estende
+explicitamente a mesma regra para `os-fotos` e a eleva a decisão de negócio
+formal, não só efeito colateral de RLS.
+
+**Se uma remoção lógica futura for necessária** (ex.: LGPD, erro de upload
+grosseiro, pedido do cliente): não deve ser exclusão física. Precisa de:
+motivo obrigatório, usuário responsável, data/hora, registro de auditoria
+(`registrar_auditoria`, mesmo padrão de BR-018/BR-042), e o registro
+original (linha em `os_fotos`/`comprovante_path` referenciado) preservado —
+uma remoção lógica marca o registro como invalidado (ex.: campo
+`invalidado_em`/`invalidado_por`/`motivo_invalidacao`), nunca faz
+`DELETE`/apaga a linha nem o objeto do Storage. **Isso não foi implementado
+nesta rodada** — é proibido implementar funcionalidade de negócio nova na
+ETAPA 8/RC2; fica registrado aqui como decisão de arquitetura para uma
+rodada futura que precise dela, e como item explícito em
+`docs/PRODUCTION_READINESS_CHECKLIST.md`.

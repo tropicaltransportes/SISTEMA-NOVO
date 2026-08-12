@@ -62,9 +62,14 @@ nada relacionado ao ERP Oficina.
    `VITE_SUPABASE_ANON_KEY` (ou equivalentes) de produção, nunca os de
    DEV/QA, e vice-versa (o frontend de DEV/QA nunca deve apontar para
    produção).
-9. **HTTPS/domínio próprio**, rewrite de SPA configurado (ver seção 18 de
-   `docs/testing/TEST_REPORT_RC1.md` — refresh em rota interna precisa
-   continuar funcionando).
+9. **HTTPS/domínio próprio**. Rewrite de SPA **não é necessário** — o
+   roteamento é hash-based (`#/os/:id`, `createWebHashHistory` em
+   `frontend/src/router/index.js`), então o navegador sempre solicita só
+   `index.html`; refresh/deep-link em qualquer rota interna já funciona em
+   qualquer hospedagem estática sem configuração extra (confirmado na
+   ETAPA 7/RC1 seção 18 e reconfirmado na ETAPA 8/RC2 seção 3). **Enquanto
+   o frontend utilizar hash routing, não é necessário SPA rewrite. Se
+   futuramente migrar para history routing, revisar esta decisão.**
 10. **Backup e restore documentados e testados** — ver
     `docs/PRODUCTION_BACKUP_RESTORE.md`.
 

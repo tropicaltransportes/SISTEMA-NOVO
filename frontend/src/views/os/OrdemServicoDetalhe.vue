@@ -96,7 +96,13 @@ async function carregar() {
       .select('id, tipo, status, data_abertura, data_liberacao, checklist_template_id, orcamento_id, os_origem_id, previsao_conclusao, previsao_definida_por, previsao_definida_em, custo_pecas, custo_mao_obra, custo_total, custo_hora_aplicado, horas_apontadas_total, custo_calculado_em, centro_custo_id, veiculo:veiculos(id, placa, prefixo, modelo), cliente:clientes(id, nome, tipo)')
       .eq('id', osId.value)
       .single(),
-    supabase.from('os_executores').select('id, usuario_id, etapa, inicio, fim, observacao, ativo, removido_por, removido_em, motivo_remocao, usuario:profiles(nome)').eq('os_id', osId.value).order('inicio', { ascending: false }),
+    // ETAPA 8 (RC2) — seção 1: 'usuario:profiles(nome)' é ambíguo porque
+    // os_executores tem DUAS FKs para profiles (usuario_id e removido_por).
+    // Sem desambiguação explícita, o PostgREST recusa o embed com
+    // PGRST201/HTTP 300 ("Could not embed because more than one
+    // relationship was found") em TODA carga de OS, mascarado até agora
+    // porque o retorno era usado como `data ?? []` sem checar `.error`.
+    supabase.from('os_executores').select('id, usuario_id, etapa, inicio, fim, observacao, ativo, removido_por, removido_em, motivo_remocao, usuario:profiles!os_executores_usuario_id_fkey(nome)').eq('os_id', osId.value).order('inicio', { ascending: false }),
     supabase.from('estoque_movimentos').select('id, quantidade, custo_unitario, criado_em, orcamento_item_id, os_adicional_item_id, tipo, peca:pecas(sku, descricao)').eq('origem_tipo', 'os').eq('origem_id', osId.value).order('criado_em', { ascending: false }),
     supabase.from('pecas').select('id, sku, descricao, saldo_atual').is('deleted_at', null).order('descricao'),
     supabase.from('checklist_templates').select('id, nome').eq('ativo', true).order('nome'),
@@ -108,6 +114,15 @@ async function carregar() {
     return
   }
   os.value = respOs.data
+  // ETAPA 8 (RC2) — seção 1: as 4 chamadas abaixo são auxiliares (a OS em si
+  // já carregou); não abortam a tela, mas também não podem ser silenciadas —
+  // regra do CLAUDE.md ("é proibido... considerar teste não executado como
+  // aprovado" aplica-se aqui por analogia a erro tratado como sucesso).
+  for (const [nome, resp] of [['executores', respExec], ['movimentações de estoque', respMov], ['peças', respPecas], ['templates de checklist', respTemplates]]) {
+    if (resp.error) {
+      toast.add({ severity: 'warn', summary: `Falha ao carregar ${nome}`, detail: resp.error.message, life: 6000 })
+    }
+  }
   executores.value = respExec.data ?? []
   movimentos.value = respMov.data ?? []
   pecas.value = respPecas.data ?? []
