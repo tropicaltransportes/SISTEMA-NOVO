@@ -20,6 +20,14 @@ escopo desta rodada, que é só de homologação).
 - [ ] Storage policies validadas em produção — reaplicar os testes da
       seção 11 de `docs/testing/TEST_REPORT_RC1.md` (buckets `comprovantes`
       e `os-fotos`, ambos privados)
+- [x] Política de exclusão de arquivos — **decisão formal registrada**
+      (ETAPA 8/RC2, `docs/testing/BUSINESS_RULES.md` BR-043): arquivos
+      operacionais (comprovantes, fotos de OS) não devem ser apagados
+      fisicamente por nenhum perfil, nem administrador. Confirmado que
+      nenhuma migration cria policy de DELETE em `storage.objects` para os
+      dois buckets — nada a fazer para produção herdar o mesmo
+      comportamento, só confirmar que a policy continua ausente após
+      qualquer migration futura.
 - [ ] Usuários QA ausentes — nenhum `*.qa.local`, nenhum `Teste@2026!Qa`
 - [ ] Seed QA **não** aplicado (`supabase/seed.sql` é só para DEV/QA —
       nunca rodar contra produção)
@@ -31,13 +39,28 @@ escopo desta rodada, que é só de homologação).
 
 ## Continuidade operacional
 
-- [ ] Backup configurado — confirmar retenção/frequência do backup
-      automático do plano contratado + procedimento de backup lógico
-      documentado em `docs/PRODUCTION_BACKUP_RESTORE.md`
-- [ ] Restore documentado — `docs/PRODUCTION_BACKUP_RESTORE.md` revisado
-      pelo responsável técnico antes do go-live (restore real ainda não
-      testado em produção, só o mecanismo de rebuild via migrations, ver
-      seção 7 do relatório RC1)
+- [x] Backup configurado (parcial) — backup lógico real **executado** na
+      ETAPA 8 (RC2) contra DEV/QA (schema via migrations + dados via REST,
+      ver `docs/testing/TEST_REPORT_RC2.md` seção 5). **Achado importante**:
+      `npx supabase db dump --linked` (o comando recomendado em
+      `docs/PRODUCTION_BACKUP_RESTORE.md`) **não funciona sem Docker Desktop
+      ou `pg_dump` instalado localmente** — confirmado por execução real
+      nesta rodada, não só suposição. Antes do go-live, garantir que a
+      máquina/pipeline responsável pelo backup de produção tenha Docker ou
+      `pg_dump` disponível, ou usar o método alternativo (schema =
+      migrations, dados = REST API) documentado no RC2. Ainda falta
+      confirmar retenção/frequência do backup automático do plano Supabase
+      contratado.
+- [ ] Restore documentado, **mas não testado ponta a ponta** —
+      `docs/PRODUCTION_BACKUP_RESTORE.md` revisado pelo responsável técnico
+      antes do go-live. Restore real ficou **BLOQUEADO** na ETAPA 8 (RC2)
+      por falta de Docker/Postgres local e por não ser autorizado criar um
+      projeto Supabase novo nessa rodada (ver
+      `docs/testing/TEST_REPORT_RC2.md` seção 6) — **risco operacional
+      explícito**, não validado. Só o mecanismo de rebuild de **schema**
+      via migrations foi comprovado (RC1, seção 7). Antes do go-live,
+      executar um restore real de **dados** em ambiente descartável pelo
+      menos uma vez.
 
 ## Validação pré-go-live
 
@@ -52,15 +75,31 @@ escopo desta rodada, que é só de homologação).
       `desconto_config` (teto de desconto), `anexos_config` (tamanho
       máximo/MIME permitido de anexos), centros de custo reais, checklist
       templates reais — todos configurados com valores reais da operação,
-      não os fixtures de teste usados em QA
+      não os fixtures de teste usados em QA. **Verificar com
+      `rpc_status_configuracao_sistema()`** (ETAPA 8/RC2, seção 2; tela
+      "Configuração Inicial" no menu administrativo do frontend) — todos os
+      6 itens devem aparecer CONFIGURADO antes de liberar acesso a usuários
+      reais. Causa raiz conhecida (não corrigir por migration, é
+      comportamento esperado): a migration
+      `20260814110000_p1c_config_administrativa.sql` tenta semear
+      `desconto_config`/`anexos_config` mas o `insert...select` depende de
+      já existir um `administrador_tecnico` em `profiles`, o que nunca é
+      verdade no momento em que as migrations rodam (o admin é criado
+      DEPOIS, manualmente) — então essas duas linhas nascem vazias em toda
+      instalação limpa, produção incluída. Configurar manualmente via
+      `rpc_definir_custo_hora`/`rpc_definir_teto_desconto`/
+      `rpc_definir_anexos_config`/`rpc_criar_centro_custo` como o admin
+      inicial, e reconferir com `rpc_status_configuracao_sistema()`.
 - [ ] Logs verificados — confirmar que os logs do Supabase (Auth, API,
       Postgres) estão acessíveis e sendo observados após o go-live
-- [ ] URLs/SPA configuradas — rewrite de servidor para SPA configurado no
-      host de produção do frontend (ver seção 18 de
-      `docs/testing/TEST_REPORT_RC1.md` — F5 em rota interna como
-      `/os/:id` precisa continuar funcionando; documentar se o host de
-      produção precisa de configuração explícita de rewrite, o que depende
-      de qual hospedagem for escolhida)
+- [x] URLs/SPA — **não aplicável hoje.** Confirmado na ETAPA 8 (RC2), seção
+      3 (`frontend/src/router/index.js`, `createWebHashHistory`): o
+      roteamento é hash-based (`#/os/:id`), então o navegador sempre pede só
+      `index.html` ao servidor — refresh/deep-link em qualquer rota interna
+      funciona em qualquer hospedagem estática, sem nenhuma regra de rewrite
+      de servidor. **Enquanto o frontend utilizar hash routing, não é
+      necessário SPA rewrite. Se futuramente migrar para history routing,
+      revisar esta decisão.**
 - [ ] HTTPS habilitado no domínio de produção
 - [ ] Domínio próprio configurado (em vez do domínio padrão do provedor de
       hospedagem do frontend, se aplicável)

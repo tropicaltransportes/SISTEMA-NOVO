@@ -126,6 +126,13 @@ const routes = [
         component: () => import('../views/admin/FaixasAcrescimoList.vue'),
         meta: { perfis: ['administrador_tecnico'] },
       },
+      {
+        // ETAPA 8 (RC2) — seção 2: bootstrap/configuração inicial.
+        path: 'admin/status-configuracao',
+        name: 'admin-status-configuracao',
+        component: () => import('../views/admin/StatusConfiguracaoView.vue'),
+        meta: { perfis: ['encarregado', 'suporte_administrativo', 'administrador_tecnico'] },
+      },
     ],
   },
 ]

@@ -65,6 +65,12 @@ const itensMenu = computed(() => {
       icone: 'pi pi-percentage',
       perfis: ['administrador_tecnico'],
     },
+    {
+      rota: '/admin/status-configuracao',
+      label: 'Configuração Inicial',
+      icone: 'pi pi-verified',
+      perfis: ['encarregado', 'suporte_administrativo', 'administrador_tecnico'],
+    },
   ]
   return itens.filter((item) => !item.perfis || item.perfis.includes(perfil))
 })
@@ -98,6 +104,7 @@ const tituloPagina = computed(() => {
     importacao: 'Importação Inicial',
     'admin-checklist': 'Checklists Técnicos',
     'admin-faixas-acrescimo': 'Faixas de Acréscimo',
+    'admin-status-configuracao': 'Configuração Inicial',
   }
   return rotulos[route.name] ?? ''
 })
