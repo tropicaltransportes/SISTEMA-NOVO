@@ -56,25 +56,25 @@ insert into auth.users (
   confirmation_token, email_change, email_change_token_new, recovery_token
 ) values
   ('00000000-0000-0000-0000-000000000000', 'a0000000-0000-0000-0000-000000000001', 'authenticated', 'authenticated',
-   'teste.executor@qa.local', crypt('Teste@2026!Qa', gen_salt('bf')), now(), now(),
+   'teste.executor@qa.local', extensions.crypt('Teste@2026!Qa', extensions.gen_salt('bf')), now(), now(),
    '{"provider":"email","providers":["email"]}', '{"nome":"TESTE_Executor"}', now(), now(), '', '', '', ''),
   ('00000000-0000-0000-0000-000000000000', 'a0000000-0000-0000-0000-000000000002', 'authenticated', 'authenticated',
-   'teste.encarregado@qa.local', crypt('Teste@2026!Qa', gen_salt('bf')), now(), now(),
+   'teste.encarregado@qa.local', extensions.crypt('Teste@2026!Qa', extensions.gen_salt('bf')), now(), now(),
    '{"provider":"email","providers":["email"]}', '{"nome":"TESTE_Encarregado"}', now(), now(), '', '', '', ''),
   ('00000000-0000-0000-0000-000000000000', 'a0000000-0000-0000-0000-000000000003', 'authenticated', 'authenticated',
-   'teste.suporte@qa.local', crypt('Teste@2026!Qa', gen_salt('bf')), now(), now(),
+   'teste.suporte@qa.local', extensions.crypt('Teste@2026!Qa', extensions.gen_salt('bf')), now(), now(),
    '{"provider":"email","providers":["email"]}', '{"nome":"TESTE_Suporte_Administrativo"}', now(), now(), '', '', '', ''),
   ('00000000-0000-0000-0000-000000000000', 'a0000000-0000-0000-0000-000000000004', 'authenticated', 'authenticated',
-   'teste.admin@qa.local', crypt('Teste@2026!Qa', gen_salt('bf')), now(), now(),
+   'teste.admin@qa.local', extensions.crypt('Teste@2026!Qa', extensions.gen_salt('bf')), now(), now(),
    '{"provider":"email","providers":["email"]}', '{"nome":"TESTE_Administrador_Tecnico"}', now(), now(), '', '', '', ''),
   ('00000000-0000-0000-0000-000000000000', 'a0000000-0000-0000-0000-000000000005', 'authenticated', 'authenticated',
-   'teste.diretoria@qa.local', crypt('Teste@2026!Qa', gen_salt('bf')), now(), now(),
+   'teste.diretoria@qa.local', extensions.crypt('Teste@2026!Qa', extensions.gen_salt('bf')), now(), now(),
    '{"provider":"email","providers":["email"]}', '{"nome":"TESTE_Diretoria"}', now(), now(), '', '', '', ''),
   ('00000000-0000-0000-0000-000000000000', 'a0000000-0000-0000-0000-000000000006', 'authenticated', 'authenticated',
-   'teste.inativo@qa.local', crypt('Teste@2026!Qa', gen_salt('bf')), now(), now(),
+   'teste.inativo@qa.local', extensions.crypt('Teste@2026!Qa', extensions.gen_salt('bf')), now(), now(),
    '{"provider":"email","providers":["email"]}', '{"nome":"TESTE_Usuario_Inativo"}', now(), now(), '', '', '', ''),
   ('00000000-0000-0000-0000-000000000000', 'a0000000-0000-0000-0000-000000000007', 'authenticated', 'authenticated',
-   'teste.semperfil@qa.local', crypt('Teste@2026!Qa', gen_salt('bf')), now(), now(),
+   'teste.semperfil@qa.local', extensions.crypt('Teste@2026!Qa', extensions.gen_salt('bf')), now(), now(),
    '{"provider":"email","providers":["email"]}', '{"nome":"TESTE_Sem_Profile"}', now(), now(), '', '', '', '');
 
 -- Ajusta os perfis (handle_new_user sempre cria como 'executor').
