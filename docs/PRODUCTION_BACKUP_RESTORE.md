@@ -6,6 +6,61 @@ o procedimento; **não foi executada nenhuma restauração destrutiva** contra
 executado na seção 7 usou `db reset --linked`, um mecanismo diferente —
 "reconstruir do zero pelas migrations", não "restaurar um backup").
 
+## Atualização — ETAPA PROD-01 (2026-08-13): projeto de produção real existe
+
+Projeto de produção `wtxbodhqyasdlmyoyjur` ("SISTEMA NOVO - PROD",
+`sa-east-1`) foi criado pelo dono do projeto e recebeu as 51 migrations
+nesta rodada. O que muda de teórico para real:
+
+### Backup automático do Supabase — plano do projeto NÃO verificado nesta rodada
+
+Não há subcomando de CLI para consultar o plano de billing do projeto
+(`npx supabase projects list`/`orgs list` não retornam essa informação).
+**Ação pendente, não bloqueante**: confirmar no dashboard
+(`Settings → Billing` do projeto `wtxbodhqyasdlmyoyjur`) qual plano está
+ativo. Isso importa porque, na Supabase, o backup automático diário
+gerenciado (e o Point-in-Time Recovery) normalmente **não está disponível
+no plano Free** — só a partir do plano Pro. Se o projeto estiver no Free,
+não há rede de segurança de infraestrutura nenhuma além do que este
+documento descreve manualmente (backup lógico próprio). **Risco explícito
+não verificado** — responsável técnico deve confirmar antes do go-live.
+
+### Backup lógico real — ainda não executado contra produção
+
+O método alternativo real (schema = migrations concatenadas + dados = REST
+API autenticada) foi comprovado contra DEV/QA na ETAPA 8 (RC2) — ver seção 5
+de `docs/testing/TEST_REPORT_RC2.md`. **Não foi repetido contra produção
+nesta rodada** porque, no momento desta homologação, produção só contém
+configuração administrativa + os registros `SMOKE_PROD` de evidência (ver
+`docs/testing/TEST_REPORT_PROD01.md`, seção SMOKE) — não há massa de dados
+operacional real ainda (nenhum usuário real usou o sistema). Recomendação:
+rodar o mesmo procedimento do RC2 (adaptado para
+`wtxbodhqyasdlmyoyjur`/`.env.production`) periodicamente assim que a
+operação real começar, com frequência e retenção definidas pelo responsável
+técnico (sugestão mantida: diária, retida 30 dias, fora do próprio projeto
+Supabase).
+
+### `npx supabase db dump --project-ref wtxbodhqyasdlmyoyjur` — mesma limitação do RC2
+
+Reconfirmado nesta rodada: esta máquina não tem Docker Desktop nem `pg_dump`
+nem `psql` instalados (`which docker`/`pg_dump`/`psql` — todos vazios). O
+comando `db dump` invoca esses binários internamente e não funciona aqui,
+para nenhum projeto (DEV/QA ou produção). Sem mudança de causa raiz desde o
+RC2.
+
+### Restore real — continua BLOQUEADO
+
+Mesma investigação do RC2, repetida nesta rodada com o mesmo resultado:
+sem Docker, sem `pg_dump`/`psql` locais, sem driver Python de Postgres, e
+sem autorização para criar um projeto Supabase novo só para testar restore
+(explicitamente vedado no roteiro desta rodada). **`RESTORE_TESTED = FALSE`**
+— nenhum restore de dados foi simulado como sucesso. Continua sendo o maior
+risco operacional aberto deste sistema antes de um go-live com dados reais
+de clientes. Recomendação inalterada: antes do go-live, alguém com acesso a
+Docker Desktop (ou autorização explícita para criar um projeto Supabase
+descartável) deve executar um restore real pelo menos uma vez, validando o
+backup lógico num destino separado de produção.
+
 ## 1. Backup
 
 O Supabase gerencia backups automáticos do Postgres por trás do projeto

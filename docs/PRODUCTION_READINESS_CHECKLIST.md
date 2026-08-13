@@ -8,34 +8,45 @@ escopo desta rodada, que é só de homologação).
 
 ## Infraestrutura Supabase
 
-- [ ] Projeto Supabase de **produção** criado (separado de
+**Atualizado na ETAPA PROD-01 (2026-08-13) — ver `docs/testing/TEST_REPORT_PROD01.md`
+para a evidência completa de cada item marcado abaixo.**
+
+- [x] Projeto Supabase de **produção** criado (separado de
       `jzjbiejmcaygwycvqggm`, que continua DEV/QA — ver `docs/ENVIRONMENTS.md`)
-- [ ] Migrations aplicadas — as mesmas 50 migrations homologadas nesta
-      rodada, na mesma ordem, sem edição (`npx supabase db push --linked`
-      contra o projeto de produção; confirmar `migration list --linked`
-      local == remote)
-- [ ] RLS validada em produção — reaplicar pelo menos os testes das seções
-      9/10 de `docs/testing/TEST_REPORT_RC1.md` (segurança final + anon
-      global) contra o projeto de produção antes de liberar acesso
-- [ ] Storage policies validadas em produção — reaplicar os testes da
-      seção 11 de `docs/testing/TEST_REPORT_RC1.md` (buckets `comprovantes`
-      e `os-fotos`, ambos privados)
+      — `wtxbodhqyasdlmyoyjur` ("SISTEMA NOVO - PROD"), `sa-east-1`.
+- [x] Migrations aplicadas — as mesmas 51 migrations homologadas, na mesma
+      ordem, sem edição (`npx supabase db push --project-ref wtxbodhqyasdlmyoyjur`);
+      `migration list --project-ref wtxbodhqyasdlmyoyjur` confirma 51/51
+      local == remote.
+- [x] RLS validada em produção — anon RPC scan (26 RPCs de escrita testadas,
+      0 bypass), usuário inativo bloqueado, perfil errado bloqueado, perfil
+      correto permitido — ver seção SEGURANÇA de `TEST_REPORT_PROD01.md`.
+- [x] Storage policies validadas em produção — buckets `comprovantes` e
+      `os-fotos` confirmados privados; upload/leitura testados por perfil
+      (anon/executor bloqueados, suporte/encarregado permitidos conforme
+      regra); DELETE bloqueado para todos os perfis, inclusive
+      administrador (BR-043 reconfirmada em produção).
 - [x] Política de exclusão de arquivos — **decisão formal registrada**
       (ETAPA 8/RC2, `docs/testing/BUSINESS_RULES.md` BR-043): arquivos
       operacionais (comprovantes, fotos de OS) não devem ser apagados
       fisicamente por nenhum perfil, nem administrador. Confirmado que
       nenhuma migration cria policy de DELETE em `storage.objects` para os
-      dois buckets — nada a fazer para produção herdar o mesmo
-      comportamento, só confirmar que a policy continua ausente após
-      qualquer migration futura.
-- [ ] Usuários QA ausentes — nenhum `*.qa.local`, nenhum `Teste@2026!Qa`
-- [ ] Seed QA **não** aplicado (`supabase/seed.sql` é só para DEV/QA —
-      nunca rodar contra produção)
-- [ ] Secrets de produção configurados — `anon key`/`service_role key`
-      próprios do projeto de produção, nunca reaproveitados de DEV/QA
-- [ ] Frontend apontando para produção — variáveis de ambiente
-      (`VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` ou equivalentes) do
-      build de produção configuradas para o projeto de produção
+      dois buckets — reconfirmado em produção nesta rodada (tentativa real
+      de DELETE por conta smoke administrador_tecnico → 403).
+- [x] Usuários QA ausentes — projeto nasceu vazio, nenhum `*.qa.local`,
+      nenhum `Teste@2026!Qa` (nunca existiu massa QA em produção, por
+      construção — seed nunca rodou aqui).
+- [x] Seed QA **não** aplicado (`supabase/seed.sql` é só para DEV/QA —
+      nunca rodado contra produção; `db push` não executa seed).
+- [x] Secrets de produção configurados — `anon key`/`service_role key`
+      próprios do projeto de produção, obtidos via
+      `npx supabase projects api-keys --project-ref wtxbodhqyasdlmyoyjur`,
+      nunca reaproveitados de DEV/QA.
+- [x] Frontend apontando para produção — `frontend/.env.production`
+      corrigido nesta rodada para `wtxbodhqyasdlmyoyjur` (estava apontando
+      por engano para DEV/QA desde a primeira publicação no GitHub Pages —
+      achado real desta rodada, ver `TEST_REPORT_PROD01.md` seção DEPLOY);
+      `frontend/.env` (dev) confirmado inalterado.
 
 ## Continuidade operacional
 
@@ -51,47 +62,40 @@ escopo desta rodada, que é só de homologação).
       migrations, dados = REST API) documentado no RC2. Ainda falta
       confirmar retenção/frequência do backup automático do plano Supabase
       contratado.
-- [ ] Restore documentado, **mas não testado ponta a ponta** —
-      `docs/PRODUCTION_BACKUP_RESTORE.md` revisado pelo responsável técnico
-      antes do go-live. Restore real ficou **BLOQUEADO** na ETAPA 8 (RC2)
-      por falta de Docker/Postgres local e por não ser autorizado criar um
-      projeto Supabase novo nessa rodada (ver
-      `docs/testing/TEST_REPORT_RC2.md` seção 6) — **risco operacional
-      explícito**, não validado. Só o mecanismo de rebuild de **schema**
-      via migrations foi comprovado (RC1, seção 7). Antes do go-live,
-      executar um restore real de **dados** em ambiente descartável pelo
-      menos uma vez.
+- [ ] Restore documentado, **mas não testado ponta a ponta** — continua
+      **BLOQUEADO** também na ETAPA PROD-01, mesma causa raiz do RC2 (sem
+      Docker/`pg_dump`/`psql` locais, sem autorização para criar projeto
+      Supabase descartável nesta rodada). **`RESTORE_TESTED = FALSE`** —
+      maior risco operacional aberto antes de operar com dados reais de
+      clientes. Ver `docs/PRODUCTION_BACKUP_RESTORE.md` (atualizado).
 
 ## Validação pré-go-live
 
-- [ ] Smoke test em produção — login com o admin inicial + 1 fluxo mínimo
-      (criar cliente → veículo → orçamento) executado manualmente contra o
-      projeto de produção antes de liberar para usuários reais
-- [ ] Admin inicial criado — pelo menos 1 usuário `administrador_tecnico`
-      real (nome e credenciais reais da Tropical Transportes, não
-      `Teste_Administrador_Tecnico`), criado manualmente via Supabase
-      Studio/Auth do projeto de produção
-- [ ] Configurações de negócio preenchidas — `custo_hora_config`,
-      `desconto_config` (teto de desconto), `anexos_config` (tamanho
-      máximo/MIME permitido de anexos), centros de custo reais, checklist
-      templates reais — todos configurados com valores reais da operação,
-      não os fixtures de teste usados em QA. **Verificar com
-      `rpc_status_configuracao_sistema()`** (ETAPA 8/RC2, seção 2; tela
-      "Configuração Inicial" no menu administrativo do frontend) — todos os
-      6 itens devem aparecer CONFIGURADO antes de liberar acesso a usuários
-      reais. Causa raiz conhecida (não corrigir por migration, é
-      comportamento esperado): a migration
-      `20260814110000_p1c_config_administrativa.sql` tenta semear
-      `desconto_config`/`anexos_config` mas o `insert...select` depende de
-      já existir um `administrador_tecnico` em `profiles`, o que nunca é
-      verdade no momento em que as migrations rodam (o admin é criado
-      DEPOIS, manualmente) — então essas duas linhas nascem vazias em toda
-      instalação limpa, produção incluída. Configurar manualmente via
-      `rpc_definir_custo_hora`/`rpc_definir_teto_desconto`/
-      `rpc_definir_anexos_config`/`rpc_criar_centro_custo` como o admin
-      inicial, e reconferir com `rpc_status_configuracao_sistema()`.
-- [ ] Logs verificados — confirmar que os logs do Supabase (Auth, API,
-      Postgres) estão acessíveis e sendo observados após o go-live
+- [x] Smoke test em produção — login com uma conta de smoke test
+      `administrador_tecnico` (o admin real ainda não aceitou o convite) +
+      fluxo completo cliente `SMOKE_PROD` → veículo `SMOKE_PROD` → orçamento
+      `SMOKE_PROD` (com item), executado contra o projeto de produção. RLS
+      confirmada (executor bloqueado de alterar orçamento diretamente).
+      Registros preservados, inativados (`deleted_at`/`ativo=false`) como
+      evidência — ver `docs/testing/TEST_REPORT_PROD01.md` seção SMOKE.
+- [x] Admin inicial criado — Hammed de Carvalho Gurgel
+      (`hammedgurgel@tropicaltransportes.com.br`), convidado via Auth Admin
+      API (`/auth/v1/invite`), `profiles.perfil='administrador_tecnico'`,
+      `ativo=true`. **Convite enviado, ainda não aceito** — ele precisa
+      definir a própria senha e fazer seu próprio smoke test depois.
+- [x] Configurações de negócio preenchidas — `custo_hora_config` (R$50/h),
+      `desconto_config` (habilitado, teto 20%), `anexos_config` (15MB,
+      jpeg/png/webp/pdf), `centro_custo` (3 registros: "Manutenção -
+      Interna", "Manutenção - Externa", "Receita com Peças") — todos com
+      valores reais fornecidos pelo dono do projeto, confirmados via
+      `rpc_status_configuracao_sistema()` = CONFIGURADO. `checklist_template`
+      continua **PENDENTE**, por decisão explícita do dono (criará os
+      templates depois, dentro do sistema) — não é um erro, é intencional.
+- [ ] Logs verificados — procedimento documentado (só via dashboard do
+      Supabase — Auth/API/Postgres/Storage em *Logs*/*Log Explorer*; não há
+      subcomando de CLI para logs sem Docker), mas **não observado
+      continuamente ainda** (sem operação real rodando). Ver
+      `docs/testing/TEST_REPORT_PROD01.md` seção LOGS.
 - [x] URLs/SPA — **não aplicável hoje.** Confirmado na ETAPA 8 (RC2), seção
       3 (`frontend/src/router/index.js`, `createWebHashHistory`): o
       roteamento é hash-based (`#/os/:id`), então o navegador sempre pede só
@@ -100,23 +104,28 @@ escopo desta rodada, que é só de homologação).
       de servidor. **Enquanto o frontend utilizar hash routing, não é
       necessário SPA rewrite. Se futuramente migrar para history routing,
       revisar esta decisão.**
-- [ ] HTTPS habilitado no domínio de produção
-- [ ] Domínio próprio configurado (em vez do domínio padrão do provedor de
-      hospedagem do frontend, se aplicável)
-- [ ] AUT-007 aceito/documentado — risco aceito de revogação de sessão via
+- [ ] HTTPS habilitado no domínio de produção — depende do deploy real
+      (GitHub Pages já é HTTPS por padrão, mas o deploy com os valores
+      corretos de produção ainda não foi publicado — ver seção 12/DEPLOY).
+- [ ] Domínio próprio configurado — não decidido nesta rodada; a URL
+      definida é a padrão do GitHub Pages
+      (`https://tropicaltransportes.github.io/SISTEMA-NOVO/#/login`).
+- [x] AUT-007 aceito/documentado — risco aceito de revogação de sessão via
       JWT stateless do Supabase (não corrigido por decisão de escopo, ver
-      `docs/testing/BUSINESS_RULES.md` BR-040 Decisão #3 e
-      `docs/testing/TEST_REPORT_P1A.md` seção 3.3); confirmar que o
-      responsável pela operação está ciente de que revogar acesso de um
-      usuário desligado exige desativar o perfil **e** aguardar a expiração
-      natural do token (ou usar `service_role` para invalidar sessões, se
-      necessário) — não existe revogação instantânea
+      `docs/testing/BUSINESS_RULES.md` BR-040 Decisão #3); reconfirmado
+      nesta rodada contra produção (conta smoke `ativo=false` conseguiu
+      autenticar no Auth mas foi bloqueada em toda leitura/escrita do ERP).
+      Procedimento de desligamento documentado em `docs/ENVIRONMENTS.md`.
 
 ## Observação sobre o estado desta rodada
 
-Nenhum item deste checklist foi executado de fato nesta rodada — o objetivo
-da ETAPA 7 foi provar que **DEV/QA** (`jzjbiejmcaygwycvqggm`) pode ser
-reconstruído com segurança e que a suíte de testes cobre o sistema de forma
-confiável, não criar produção. A criação do ambiente de produção em si é
-uma decisão e uma ação que ficam para depois desta homologação, seguindo
-este checklist.
+**Atualizado na ETAPA PROD-01 (2026-08-13).** A maior parte deste checklist
+foi executada de fato contra o projeto de produção real
+(`wtxbodhqyasdlmyoyjur`) nesta rodada — ver `docs/testing/TEST_REPORT_PROD01.md`
+para evidência completa de cada item. Os itens que continuam pendentes
+(restore real, publicação do frontend/HTTPS/domínio, logs observados
+continuamente, aceite do convite do admin real, checklists) são pendências
+explícitas e conscientes, não itens esquecidos — a maioria é bloqueada por
+decisão explícita do roteiro desta rodada (não publicar no GitHub Pages
+ainda) ou por limitação de infraestrutura já conhecida desde o RC2 (restore
+sem Docker/pg_dump local).
