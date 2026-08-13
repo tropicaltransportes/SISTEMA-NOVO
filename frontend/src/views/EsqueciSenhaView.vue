@@ -5,6 +5,9 @@ import { useAuthStore } from '../stores/auth'
 import InputText from 'primevue/inputtext'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
+import IconField from 'primevue/iconfield'
+import InputIcon from 'primevue/inputicon'
+import AuthLayout from '../components/auth/AuthLayout.vue'
 
 const email = ref('')
 const enviado = ref(false)
@@ -32,59 +35,69 @@ async function enviar() {
 </script>
 
 <template>
-  <div class="login-page">
-    <form v-if="!enviado" class="login-card" @submit.prevent="enviar">
-      <h1>Esqueci minha senha</h1>
-      <p class="subtitulo">Informe seu e-mail cadastrado para receber o link de recuperação.</p>
+  <AuthLayout tagline="Recupere o acesso à sua conta de forma rápida e segura.">
+    <form v-if="!enviado" @submit.prevent="enviar">
+      <button type="button" class="auth-back-link" @click="router.push('/login')">
+        <i class="pi pi-arrow-left"></i> Voltar ao login
+      </button>
 
-      <label for="email">E-mail</label>
-      <InputText id="email" v-model="email" type="email" autocomplete="username" required />
+      <h1 class="auth-title">Esqueci minha senha</h1>
+      <p class="auth-subtitle">Informe seu e-mail cadastrado para receber o link de recuperação.</p>
 
-      <Message v-if="erro" severity="error" :closable="false">{{ erro }}</Message>
+      <div class="auth-messages">
+        <Message v-if="erro" severity="error" :closable="false">{{ erro }}</Message>
+      </div>
 
-      <Button type="submit" label="Enviar link de recuperação" :loading="carregando" class="botao-entrar" />
-      <Button label="Voltar ao login" text @click="router.push('/login')" />
+      <div class="auth-field">
+        <label for="email">E-mail</label>
+        <IconField>
+          <InputIcon class="pi pi-envelope" />
+          <InputText
+            id="email"
+            v-model="email"
+            type="email"
+            autocomplete="username"
+            placeholder="voce@tropicaltransportes.com.br"
+            fluid
+            required
+          />
+        </IconField>
+      </div>
+
+      <div class="auth-actions">
+        <Button
+          type="submit"
+          label="Enviar link de recuperação"
+          :loading="carregando"
+          class="auth-btn-primary"
+          fluid
+        />
+      </div>
     </form>
 
-    <div v-else class="login-card">
-      <h1>Verifique seu e-mail</h1>
+    <div v-else class="auth-success">
+      <div class="auth-success-icon"><i class="pi pi-check"></i></div>
+      <h1 class="auth-title">Verifique seu e-mail</h1>
       <Message severity="success" :closable="false">
         Se houver uma conta cadastrada com esse e-mail, enviamos um link para você redefinir sua senha.
       </Message>
-      <Button label="Voltar ao login" class="botao-entrar" @click="router.push('/login')" />
+      <Button
+        label="Voltar ao login"
+        class="auth-btn-primary"
+        style="margin-top: 20px"
+        fluid
+        @click="router.push('/login')"
+      />
     </div>
-  </div>
+  </AuthLayout>
 </template>
 
 <style scoped>
-.login-page {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #f4f5f7;
-}
-.login-card {
+.auth-success {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  width: 100%;
-  max-width: 360px;
-  padding: 2rem;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
 }
-.login-card h1 {
-  font-size: 1.25rem;
-  margin: 0;
-}
-.subtitulo {
-  margin: 0 0 0.5rem;
-  color: #6b7280;
-  font-size: 0.875rem;
-}
-.botao-entrar {
-  margin-top: 0.5rem;
+.auth-success .auth-title {
+  margin-bottom: 10px;
 }
 </style>

@@ -6,6 +6,9 @@ import InputText from 'primevue/inputtext'
 import Password from 'primevue/password'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
+import IconField from 'primevue/iconfield'
+import InputIcon from 'primevue/inputicon'
+import AuthLayout from '../components/auth/AuthLayout.vue'
 
 const email = ref('')
 const password = ref('')
@@ -49,65 +52,64 @@ async function entrar() {
 </script>
 
 <template>
-  <div class="login-page">
-    <form class="login-card" @submit.prevent="entrar">
-      <h1>ERP Oficina — Tropical Transportes</h1>
-      <p class="subtitulo">Acesso restrito a usuários convidados</p>
+  <AuthLayout>
+    <form @submit.prevent="entrar">
+      <h1 class="auth-title">Bem-vindo</h1>
+      <p class="auth-subtitle">Entre com suas credenciais para acessar o ERP Oficina.</p>
 
-      <label for="email">E-mail</label>
-      <InputText id="email" v-model="email" type="email" autocomplete="username" required />
+      <div class="auth-messages">
+        <Message v-if="erroAuthUrl" severity="warn" :closable="false">{{ erroAuthUrl }}</Message>
+        <Message v-if="senhaRedefinidaOk" severity="success" :closable="false">
+          Senha redefinida com sucesso. Faça login com sua nova senha.
+        </Message>
+        <Message v-if="erro" severity="error" :closable="false">{{ erro }}</Message>
+      </div>
 
-      <label for="senha">Senha</label>
-      <Password
-        id="senha"
-        v-model="password"
-        :feedback="false"
-        toggleMask
-        autocomplete="current-password"
-        required
-      />
+      <div class="auth-field">
+        <label for="email">E-mail</label>
+        <IconField>
+          <InputIcon class="pi pi-envelope" />
+          <InputText
+            id="email"
+            v-model="email"
+            type="email"
+            autocomplete="username"
+            placeholder="voce@tropicaltransportes.com.br"
+            fluid
+            required
+          />
+        </IconField>
+      </div>
 
-      <Message v-if="erroAuthUrl" severity="warn" :closable="false">{{ erroAuthUrl }}</Message>
-      <Message v-if="senhaRedefinidaOk" severity="success" :closable="false">
-        Senha redefinida com sucesso. Faça login com sua nova senha.
-      </Message>
-      <Message v-if="erro" severity="error" :closable="false">{{ erro }}</Message>
+      <div class="auth-field">
+        <label for="senha">Senha</label>
+        <Password
+          id="senha"
+          v-model="password"
+          :feedback="false"
+          toggleMask
+          autocomplete="current-password"
+          placeholder="Sua senha"
+          fluid
+          required
+        />
+      </div>
 
-      <Button type="submit" label="Entrar" :loading="carregando" class="botao-entrar" />
-      <Button label="Esqueci minha senha" text @click="router.push('/esqueci-senha')" />
+      <div class="auth-actions">
+        <Button
+          type="submit"
+          label="Entrar"
+          :loading="carregando"
+          class="auth-btn-primary"
+          fluid
+        />
+        <Button
+          label="Esqueci minha senha"
+          text
+          class="auth-btn-link"
+          @click="router.push('/esqueci-senha')"
+        />
+      </div>
     </form>
-  </div>
+  </AuthLayout>
 </template>
-
-<style scoped>
-.login-page {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #f4f5f7;
-}
-.login-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  width: 100%;
-  max-width: 360px;
-  padding: 2rem;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
-}
-.login-card h1 {
-  font-size: 1.25rem;
-  margin: 0;
-}
-.subtitulo {
-  margin: 0 0 0.5rem;
-  color: #6b7280;
-  font-size: 0.875rem;
-}
-.botao-entrar {
-  margin-top: 0.5rem;
-}
-</style>
