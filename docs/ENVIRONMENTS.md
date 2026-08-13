@@ -2,11 +2,58 @@
 
 Criado na ETAPA 7 (RC1 — Homologação Final), seção 20 do roteiro de
 homologação. Define a separação entre o ambiente usado até aqui (todas as
-etapas 1 a 7) e o ambiente de produção ainda não criado.
+etapas 1 a 7) e o ambiente de produção.
 
-## Situação atual (na data deste documento)
+**Atualizado na ETAPA PROD-01 (2026-08-13): o projeto de produção agora
+existe de verdade.** Ver seção "PRODUÇÃO — dados reais" abaixo. Tudo o que
+estava descrito neste documento como "quando produção for criada" nas
+rodadas RC1/RC2 já foi executado nesta rodada — ver
+`docs/testing/TEST_REPORT_PROD01.md` para a evidência completa.
 
-Existe **um único** projeto Supabase para este sistema:
+## PRODUÇÃO — dados reais (ETAPA PROD-01)
+
+| | |
+|---|---|
+| **Nome** | SISTEMA NOVO - PROD |
+| **Ref (`PRODUCTION_PROJECT_REF`)** | `wtxbodhqyasdlmyoyjur` |
+| **Organização** | `rttewrcwuqafozthelqu` (a mesma do DEV/QA — projetos separados dentro da mesma organização) |
+| **Região** | `sa-east-1` |
+| **Postgres** | 17.6.1.155 (engine 17) |
+| **Criado em** | 2026-08-12T19:58:37Z (pelo dono do projeto, antes desta rodada) |
+| **Status** | ACTIVE_HEALTHY |
+| **Papel** | **PRODUÇÃO** |
+| **Migrations aplicadas** | 51/51, local == remote (`npx supabase migration list --project-ref wtxbodhqyasdlmyoyjur`) |
+| **Massa QA** | Nenhuma — projeto nasceu vazio, `supabase/seed.sql` nunca foi executado contra ele (nem pode ser: `db push` não roda seed, só `db reset`, e `db reset` nunca foi usado aqui) |
+| **Admin inicial** | Hammed de Carvalho Gurgel (`hammedgurgel@tropicaltransportes.com.br`), convidado via Supabase Auth Admin API (`/auth/v1/invite`), perfil `administrador_tecnico`, `ativo=true`. Convite enviado, ainda **não aceito** (sem senha definida) na data deste documento. |
+| **Configuração administrativa** | 5/6 itens de `rpc_status_configuracao_sistema()` = CONFIGURADO (custo/hora R$50/h, desconto 20% teto, anexos 15MB jpeg/png/webp/pdf, 3 centros de custo). `checklist_template` = PENDENTE, por decisão do dono (ele criará os templates depois). |
+| **Comando obrigatório para qualquer operação de banco nesta e em rodadas futuras** | sempre `--project-ref wtxbodhqyasdlmyoyjur` explícito. **Nunca** `supabase link` para produção, **nunca** `--linked` sozinho sem `--project-ref` também presente na mesma chamada (a combinação `--project-ref <ref> --linked` funciona sem alterar o estado de link persistido da CLI — confirmado nesta rodada). |
+
+**Nunca registrado aqui**: `service_role key`, senha de banco, connection string com senha, access token. A `anon key` de produção NÃO é secreta e está em `frontend/.env.production` (build de produção) — pode ser obtida a qualquer momento com `npx supabase projects api-keys --project-ref wtxbodhqyasdlmyoyjur`.
+
+### Como desativar um usuário em produção (procedimento operacional — AUT-007)
+
+Não existe revogação instantânea de sessão (JWT stateless, risco aceito —
+ver BUSINESS_RULES.md BR-040 Decisão #3). Para desligar um usuário:
+
+1. `update profiles set ativo = false where id = '<uuid-do-usuario>';` (via
+   painel administrativo do sistema quando existir essa tela, ou SQL direto
+   pelo responsável técnico contra o projeto de produção).
+2. Confirmado nesta rodada (ETAPA PROD-01, smoke test de segurança): com
+   `ativo=false`, o usuário consegue tecnicamente autenticar no Supabase
+   Auth (GoTrue não sabe nada sobre `profiles.ativo`), mas **toda** leitura
+   e escrita no ERP fica bloqueada (`current_perfil()`/`current_user_ativo()`
+   retornam falso/nulo) — confirmado com uma conta de smoke test
+   (`smoke.prod.inativo@tropicaltransportes.com.br`): `SELECT` em `clientes`
+   retornou vazio, RPC de escrita retornou `P0001 "Perfil sem permissão..."`.
+3. Se for necessário garantir que o token de acesso já emitido pare de
+   funcionar imediatamente (não só na próxima chamada ao ERP, mas em geral),
+   é preciso usar `service_role` para revogar sessões no Supabase Auth — não
+   existe um botão de "logout forçado" no ERP hoje. Tratar como exceção rara,
+   não como procedimento padrão de desligamento.
+
+## Situação DEV/QA (inalterada)
+
+Existe **um único** projeto Supabase de DEV/QA para este sistema:
 
 | | |
 |---|---|
@@ -32,46 +79,48 @@ Existe também um segundo projeto na mesma organização, `cedqaxmkffqrwfopgyze`
 ("YNAB COVER"), **sem nenhuma relação com este sistema** — não usar para
 nada relacionado ao ERP Oficina.
 
-## O que PRODUÇÃO precisa ter, obrigatoriamente
+## O que PRODUÇÃO precisa ter, obrigatoriamente — status após ETAPA PROD-01
 
-1. **Projeto Supabase próprio**, separado do DEV/QA (`jzjbiejmcaygwycvqggm`
-   nunca deve virar produção — criar um projeto novo).
+1. **Projeto Supabase próprio**, separado do DEV/QA. ✅ **FEITO** — `wtxbodhqyasdlmyoyjur`.
 2. **Secrets próprios**: nova `anon key` e `service_role key`, nunca as
-   mesmas usadas em DEV/QA. Nenhuma chave de DEV/QA deve estar em qualquer
-   config de produção.
-3. **Mesmas 50 migrations**, aplicadas na mesma ordem, sem alteração —
-   migrations antigas nunca são editadas neste projeto (regra já em vigor);
-   produção deve estar sempre em paridade de schema com o que foi
-   homologado.
-4. **Nenhuma massa de teste**: `supabase/seed.sql` **não** deve ser aplicado
-   em produção. Nenhum usuário `*.qa.local`, nenhum registro `TESTE_`/`QA_`/
-   `PGTAP`.
-5. **Usuários reais**: pelo menos 1 administrador técnico real, criado
-   manualmente (ver `docs/PRODUCTION_READINESS_CHECKLIST.md`), com senha
-   forte própria — nunca `Teste@2026!Qa`.
-6. **Configuração administrativa inicial preenchida de verdade**
-   (`custo_hora_config`, `desconto_config`/teto de desconto,
-   `anexos_config`, centros de custo reais) — os valores usados em QA são
-   fixtures de teste, não representam a operação real da Tropical
-   Transportes.
-7. **Storage**: os buckets `comprovantes` e `os-fotos` recriados (as
-   migrations já criam os buckets — confirmar que a migration de criação
-   dos buckets roda em produção também) com as mesmas policies validadas
-   nesta rodada (ver seção 11 de `docs/testing/TEST_REPORT_RC1.md`).
-8. **Frontend apontando para o projeto de produção** — `VITE_SUPABASE_URL`/
-   `VITE_SUPABASE_ANON_KEY` (ou equivalentes) de produção, nunca os de
-   DEV/QA, e vice-versa (o frontend de DEV/QA nunca deve apontar para
-   produção).
-9. **HTTPS/domínio próprio**. Rewrite de SPA **não é necessário** — o
-   roteamento é hash-based (`#/os/:id`, `createWebHashHistory` em
-   `frontend/src/router/index.js`), então o navegador sempre solicita só
-   `index.html`; refresh/deep-link em qualquer rota interna já funciona em
-   qualquer hospedagem estática sem configuração extra (confirmado na
-   ETAPA 7/RC1 seção 18 e reconfirmado na ETAPA 8/RC2 seção 3). **Enquanto
-   o frontend utilizar hash routing, não é necessário SPA rewrite. Se
-   futuramente migrar para history routing, revisar esta decisão.**
-10. **Backup e restore documentados e testados** — ver
-    `docs/PRODUCTION_BACKUP_RESTORE.md`.
+   mesmas usadas em DEV/QA. ✅ **FEITO** — confirmado por chaves distintas
+   (`iss`/`ref` do JWT diferentes) retornadas por
+   `projects api-keys --project-ref wtxbodhqyasdlmyoyjur`.
+3. **Mesmas 51 migrations**, aplicadas na mesma ordem, sem alteração. ✅
+   **FEITO** — 51/51, local == remote.
+4. **Nenhuma massa de teste**: `supabase/seed.sql` **não** aplicado em
+   produção. ✅ **FEITO** — nunca executado (só `db push`, que não roda
+   seed); confirmado 0 `auth.users` antes do admin, 0 `profiles`/`veiculos`/
+   `ordens_servico` antes do smoke test.
+5. **Usuários reais**: pelo menos 1 administrador técnico real. 🟡
+   **PARCIAL** — convite enviado a Hammed de Carvalho Gurgel, perfil já
+   promovido a `administrador_tecnico` em `profiles`, mas o convite ainda
+   **não foi aceito** (sem senha própria definida) na data deste documento.
+6. **Configuração administrativa inicial preenchida de verdade**. 🟡
+   **PARCIAL (5/6)** — custo/hora, desconto, anexos e centros de custo
+   configurados com os valores reais fornecidos pelo dono do projeto;
+   checklists ficam PENDENTE por decisão dele (fará depois, dentro do
+   sistema).
+7. **Storage**: os buckets `comprovantes` e `os-fotos` recriados. ✅
+   **FEITO** — confirmados via migrations + smoke test de policies (upload/
+   leitura por perfil, DELETE bloqueado para todos inclusive admin, BR-043).
+8. **Frontend apontando para o projeto de produção**. ✅ **FEITO** —
+   `frontend/.env.production` aponta para `wtxbodhqyasdlmyoyjur`; `.env`
+   (dev) inalterado, continua `jzjbiejmcaygwycvqggm`. **Achado desta
+   rodada**: antes desta correção, `.env.production` estava commitado
+   apontando por engano para o DEV/QA desde a rodada em que o GitHub Pages
+   foi publicado pela primeira vez (commit `1ce7af5`) — ver seção DEPLOY de
+   `docs/testing/TEST_REPORT_PROD01.md`.
+9. **HTTPS/domínio próprio**. ⬜ **NÃO FEITO NESTA RODADA** — depende do
+   deploy real do frontend (`git push` para `main`), que não foi executado
+   por decisão explícita do roteiro desta rodada (ver seção 12/DEPLOY do
+   relatório). Rewrite de SPA continua **não necessário** (hash routing,
+   `createWebHashHistory`).
+10. **Backup e restore documentados e testados**. 🟡 **PARCIAL** — backup
+    automático do Supabase depende do plano contratado (não verificável via
+    CLI nesta rodada — confirmar no dashboard, Settings → Billing). Restore
+    real continua **BLOQUEADO**, mesma causa raiz do RC2 (sem Docker/
+    pg_dump/psql neste ambiente) — ver `docs/PRODUCTION_BACKUP_RESTORE.md`.
 
 ## Regra permanente
 
