@@ -11,7 +11,7 @@ import './style.css'
 import App from './App.vue'
 import router from './router'
 import { authRedirect } from './lib/supabaseClient'
-import { useAuthStore } from './stores/auth'
+import { useAuthStore, marcarSenhaPendente } from './stores/auth'
 
 // ETAPA AUTH-01 — a inicialização é sequenciada (não apenas
 // app.use(router) + app.mount() direto) para evitar uma condição de corrida
@@ -36,6 +36,13 @@ async function bootstrap() {
   // depende do evento PASSWORD_RECOVERY do GoTrue, que não é disparado
   // para type=invite).
   if (authRedirect.type === 'invite' || authRedirect.type === 'recovery') {
+    // Persistido em localStorage (não só nesta variável de módulo) porque
+    // um teste real contra produção mostrou que, se o usuário abrir uma
+    // aba nova ou recarregar antes de confirmar a senha, o gate baseado só
+    // no hash desta página específica não protege mais nada — a sessão já
+    // existe no localStorage compartilhado. O guard em router/index.js lê
+    // essa flag em toda navegação. Ver docs/testing/TEST_REPORT_AUTH01.md.
+    marcarSenhaPendente()
     window.location.hash = '#/definir-senha'
   } else if (authRedirect.type === 'error') {
     window.location.hash = `#/login?erroAuth=${encodeURIComponent(authRedirect.errorCode)}`

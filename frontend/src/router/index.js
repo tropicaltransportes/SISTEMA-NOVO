@@ -1,5 +1,5 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
-import { useAuthStore } from '../stores/auth'
+import { useAuthStore, temSenhaPendente } from '../stores/auth'
 
 const routes = [
   {
@@ -170,6 +170,16 @@ router.beforeEach(async (to) => {
   const auth = useAuthStore()
   if (auth.loading) {
     await auth.init()
+  }
+
+  // ETAPA AUTH-01 — achado real de teste: sem isso, um convite/recuperação
+  // abandonado antes de confirmar a senha (aba nova, reload) deixa a
+  // sessão já autenticada "solta" no localStorage, e o usuário cairia no
+  // ERP sem nunca ter definido senha própria. Vale para qualquer
+  // navegação, em qualquer aba — só sai desse estado definindo a senha de
+  // verdade (ou saindo/entrando de novo com uma senha que já funcione).
+  if (to.name !== 'definir-senha' && to.name !== 'login' && auth.session && temSenhaPendente()) {
+    return { name: 'definir-senha' }
   }
 
   if (to.meta.public) {

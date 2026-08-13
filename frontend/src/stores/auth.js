@@ -1,6 +1,28 @@
 import { defineStore } from 'pinia'
 import { supabase } from '../lib/supabaseClient'
 
+// ETAPA AUTH-01 — achado real de teste contra produção: o gate para
+// /definir-senha em main.js só roda no boot da PÁGINA que consumiu o hash
+// de convite/recuperação. Se o usuário convidado abandonar essa aba antes
+// de confirmar a senha (ex.: abre uma aba nova, ou só recarrega depois de
+// a sessão já existir no localStorage), ele cai direto no ERP sem nunca
+// ter definido senha própria — exatamente o que a seção 3 do roteiro pede
+// para evitar. localStorage é compartilhado entre abas da mesma origem
+// (diferente de sessionStorage), então essa flag sobrevive a troca de aba
+// e reload, e é limpa assim que a senha é realmente definida (ou em
+// logout/login normal, para não prender à toa uma sessão futura legítima
+// que já tenha senha).
+const CHAVE_SENHA_PENDENTE = 'auth01-senha-pendente'
+export function marcarSenhaPendente() {
+  window.localStorage.setItem(CHAVE_SENHA_PENDENTE, '1')
+}
+function limparSenhaPendente() {
+  window.localStorage.removeItem(CHAVE_SENHA_PENDENTE)
+}
+export function temSenhaPendente() {
+  return window.localStorage.getItem(CHAVE_SENHA_PENDENTE) === '1'
+}
+
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     session: null,
@@ -74,6 +96,10 @@ export const useAuthStore = defineStore('auth', {
       if (error) throw error
       this.session = data.session
       await this.carregarPerfil()
+      // Login normal com senha funcionando prova que essa conta já tem
+      // senha própria — qualquer flag de "senha pendente" deixada por um
+      // convite/recuperação anterior e nunca concluído está obsoleta.
+      limparSenhaPendente()
       if (this.profile?.ativo === false) {
         // Sessão do Supabase Auth foi criada (login tecnicamente válido),
         // mas o ERP nunca deve considerar essa sessão utilizável — encerra
@@ -90,6 +116,7 @@ export const useAuthStore = defineStore('auth', {
       await supabase.auth.signOut()
       this.session = null
       this.profile = null
+      limparSenhaPendente()
     },
     // ETAPA AUTH-01 — seção 4 (esqueci minha senha). Não revela se o
     // e-mail existe: o próprio endpoint /recover do Supabase Auth já
@@ -106,6 +133,7 @@ export const useAuthStore = defineStore('auth', {
     async definirNovaSenha(novaSenha) {
       const { error } = await supabase.auth.updateUser({ password: novaSenha })
       if (error) throw error
+      limparSenhaPendente()
       // Sessão pode ter sido re-emitida; garante que o estado local reflita
       // o usuário já com senha própria definida.
       const { data } = await supabase.auth.getSession()
