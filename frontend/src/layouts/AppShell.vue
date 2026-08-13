@@ -75,6 +75,15 @@ const itensMenu = computed(() => {
   return itens.filter((item) => !item.perfis || item.perfis.includes(perfil))
 })
 
+const iniciaisUsuario = computed(() => {
+  const nome = auth.profile?.nome?.trim()
+  if (!nome) return ''
+  const partes = nome.split(/\s+/)
+  const primeira = partes[0]?.[0] ?? ''
+  const ultima = partes.length > 1 ? partes[partes.length - 1][0] : ''
+  return (primeira + ultima).toUpperCase()
+})
+
 const nomePerfil = computed(() => {
   const rotulos = {
     executor: 'Executor',
@@ -138,7 +147,7 @@ async function sair() {
         </nav>
 
         <div class="sidebar-footer">
-          <div class="avatar"></div>
+          <div class="avatar">{{ iniciaisUsuario }}</div>
           <div class="sidebar-footer-texto">
             <div class="user-nome">{{ auth.profile?.nome }}</div>
             <div class="user-perfil">{{ nomePerfil }}</div>
@@ -283,8 +292,15 @@ nav {
   width: 30px;
   height: 30px;
   border-radius: 999px;
-  background: linear-gradient(135deg, #c4b5fd, #8b5cf6);
+  background: var(--accent-gradient);
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
 }
 .sidebar-footer-texto {
   min-width: 0;
@@ -330,5 +346,49 @@ nav {
   flex: 1;
   padding: 0 28px 32px;
   overflow: auto;
+}
+
+/* ETAPA UX-DASHBOARD-01 — adapta o shell em notebooks/telas menores sem
+   alterar navegação/permissões, só a apresentação (item 14 do roteiro). */
+@media (max-width: 1280px) {
+  .page-bg {
+    padding: 14px;
+  }
+  .shell {
+    height: calc(100vh - 28px);
+  }
+  .sidebar {
+    width: 76px;
+    padding: 18px 10px;
+  }
+  .marca-texto,
+  .item-menu span,
+  .sidebar-footer-texto {
+    display: none;
+  }
+  .marca {
+    justify-content: center;
+    padding: 6px 0 22px;
+  }
+  .item-menu {
+    justify-content: center;
+    padding: 10px;
+  }
+  .sidebar-footer {
+    justify-content: center;
+  }
+  .topbar {
+    padding: 16px 20px;
+  }
+  .pagina {
+    padding: 0 20px 24px;
+  }
+}
+
+@media (max-width: 760px) {
+  .topbar {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
 }
 </style>

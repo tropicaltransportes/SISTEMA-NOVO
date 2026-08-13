@@ -44,6 +44,30 @@
   --neutral-accent: #a78bfa;
   --neutral-accent-bg: rgba(139, 92, 246, 0.18);
 
+  /* superfícies (aliases do design system p/ ETAPA UX-DASHBOARD-01) */
+  --surface: var(--panel-card-bg);
+  --surface-hover: rgba(255, 255, 255, 0.09);
+  --primary: var(--accent-1);
+  --primary-hover: #7c4de8;
+
+  /* cores de status — única fonte de verdade visual (ver
+     frontend/src/constants/statusVisual.js para os mesmos valores em JS,
+     usados por gráficos/legendas que não conseguem ler var() do CSS) */
+  --status-rascunho: #9ca3af;
+  --status-enviado: #38bdf8;
+  --status-aguardando: #facc15;
+  --status-aprovado: #4ade80;
+  --status-parcial: #a78bfa;
+  --status-rejeitado: #f87171;
+  --status-aberta: #8b5cf6;
+  --status-em-execucao: #38bdf8;
+  --status-em-diagnostico: #38bdf8;
+  --status-aguardando-teste: #fb923c;
+  --status-concluida: #4ade80;
+  --status-liberada: #16a34a;
+  --status-cancelada: #f87171;
+  --status-garantia: #a78bfa;
+
   /* efeitos */
   --shell-radius: 26px;
   --card-radius: 14px;
