@@ -6,6 +6,7 @@ import { authRedirect } from '../lib/supabaseClient'
 import Password from 'primevue/password'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
+import AuthLayout from '../components/auth/AuthLayout.vue'
 
 const senha = ref('')
 const confirmacao = ref('')
@@ -59,60 +60,51 @@ async function confirmar() {
 </script>
 
 <template>
-  <div class="login-page">
-    <form class="login-card" @submit.prevent="confirmar">
-      <h1>{{ titulo }}</h1>
-      <p class="subtitulo">{{ subtitulo }}</p>
+  <AuthLayout tagline="Escolha uma senha forte para proteger o acesso à sua conta.">
+    <form @submit.prevent="confirmar">
+      <h1 class="auth-title">{{ titulo }}</h1>
+      <p class="auth-subtitle">{{ subtitulo }}</p>
 
-      <label for="senha">Nova senha</label>
-      <Password id="senha" v-model="senha" toggleMask autocomplete="new-password" required />
+      <div class="auth-messages">
+        <Message v-if="erro" severity="error" :closable="false">{{ erro }}</Message>
+      </div>
 
-      <label for="confirmacao">Confirme a nova senha</label>
-      <Password
-        id="confirmacao"
-        v-model="confirmacao"
-        :feedback="false"
-        toggleMask
-        autocomplete="new-password"
-        required
-      />
+      <div class="auth-field">
+        <label for="senha">Nova senha</label>
+        <Password
+          id="senha"
+          v-model="senha"
+          toggleMask
+          autocomplete="new-password"
+          placeholder="Mínimo de 8 caracteres"
+          fluid
+          required
+        />
+      </div>
 
-      <Message v-if="erro" severity="error" :closable="false">{{ erro }}</Message>
+      <div class="auth-field">
+        <label for="confirmacao">Confirme a nova senha</label>
+        <Password
+          id="confirmacao"
+          v-model="confirmacao"
+          :feedback="false"
+          toggleMask
+          autocomplete="new-password"
+          placeholder="Repita a senha"
+          fluid
+          required
+        />
+      </div>
 
-      <Button type="submit" label="Confirmar senha" :loading="carregando" class="botao-entrar" />
+      <div class="auth-actions">
+        <Button
+          type="submit"
+          label="Confirmar senha"
+          :loading="carregando"
+          class="auth-btn-primary"
+          fluid
+        />
+      </div>
     </form>
-  </div>
+  </AuthLayout>
 </template>
-
-<style scoped>
-.login-page {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #f4f5f7;
-}
-.login-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  width: 100%;
-  max-width: 360px;
-  padding: 2rem;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
-}
-.login-card h1 {
-  font-size: 1.25rem;
-  margin: 0;
-}
-.subtitulo {
-  margin: 0 0 0.5rem;
-  color: #6b7280;
-  font-size: 0.875rem;
-}
-.botao-entrar {
-  margin-top: 0.5rem;
-}
-</style>

@@ -1,0 +1,120 @@
+/* ETAPA UX-LOGIN-01 — estilos compartilhados pelas telas de autenticação
+   (login, esqueci senha, definir/redefinir senha). Classes com prefixo
+   "auth-" para evitar colisão com o restante do app. */
+
+.auth-title {
+  margin: 0 0 6px;
+  font-size: 25px;
+  font-weight: 800;
+  letter-spacing: -0.4px;
+  color: var(--text-heading);
+}
+
+.auth-subtitle {
+  margin: 0 0 26px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 18px;
+}
+
+.auth-field label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.auth-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.auth-btn-primary {
+  margin-top: 4px;
+  font-weight: 700;
+}
+.auth-btn-primary .p-button-label {
+  font-weight: 700;
+}
+
+.auth-btn-link {
+  align-self: center;
+  color: var(--text-muted);
+}
+
+.auth-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.auth-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 22px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  width: fit-content;
+  background: none;
+  border: none;
+  padding: 0;
+}
+.auth-back-link:hover {
+  color: var(--accent-text);
+}
+
+.auth-success-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: var(--success-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+.auth-success-icon .pi {
+  font-size: 22px;
+  color: var(--success);
+}
+
+/* --- ajustes de aparência dos componentes PrimeVue dentro das telas de auth --- */
+.auth-card .p-inputtext,
+.auth-card .p-password-input {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border-panel);
+  color: var(--text-body);
+}
+.auth-card .p-inputtext::placeholder,
+.auth-card .p-password-input::placeholder {
+  color: var(--text-faint);
+}
+.auth-card .p-inputtext:enabled:focus,
+.auth-card .p-password-input:enabled:focus {
+  border-color: var(--accent-1);
+  box-shadow: 0 0 0 1px var(--accent-1);
+}
+.auth-card .p-iconfield .p-inputicon {
+  color: var(--text-faint);
+}
+.auth-card .p-button:not(.auth-btn-link):not(.p-button-text) {
+  background: var(--accent-gradient);
+  border: none;
+}
+.auth-card .p-button:not(.auth-btn-link):not(.p-button-text):not(:disabled):hover {
+  filter: brightness(1.08);
+}
