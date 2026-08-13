@@ -3,16 +3,18 @@
 Data: 2026-08-13. Continuação de `TEST_REPORT_PROD01.md` (preservado
 intacto). Objetivo desta rodada: corrigir e homologar o ciclo completo de
 autenticação em **PRODUÇÃO real** — convite, "esqueci minha senha", troca
-de senha logado — depois que o administrador real (Hammed de Carvalho
-Gurgel) tentou usar o link de convite original e caiu num erro
+de senha logado — depois que o administrador técnico real tentou usar o
+link de convite original e caiu num erro
 (`access_denied&error_code=otp_expired`, redirecionando para
 `localhost:3000`). Nenhuma outra funcionalidade do ERP foi criada ou
 alterada nesta etapa.
 
 **AMBIENTE = PRODUÇÃO | PROJECT_REF = `wtxbodhqyasdlmyoyjur`.** O projeto
-DEV/QA (`jzjbiejmcaygwycvqggm`) e o projeto sem relação (`cedqaxmkffqrwfopgyze`,
-"YNAB COVER") não foram tocados em nenhum momento. Toda chamada de CLI que
-afetou produção usou `--project-ref wtxbodhqyasdlmyoyjur` explícito.
+DEV/QA e o projeto sem relação ("YNAB COVER") não foram tocados em nenhum
+momento (refs omitidos deste documento público por princípio de menor
+exposição — ver `docs/ENVIRONMENTS.md`, não publicado, para os valores
+reais). Toda chamada de CLI que afetou produção usou `--project-ref`
+explícito do projeto de produção.
 
 **Nota sobre execução**: os comandos de CLI que alteram configuração de
 produção (`supabase config push`) foram bloqueados para execução direta
@@ -237,7 +239,7 @@ senha nova (do TESTE D) → `200`, login funciona.
 | C | Senha anterior ao TESTE B deixa de funcionar | **PASSOU** — `POST /auth/v1/token?grant_type=password` com a senha do TESTE A → `400 invalid_credentials`, depois que B trocou a senha. |
 | E | Link inválido/expirado (mesmo link do TESTE A, reutilizado) | **PASSOU** — landou em `#/login?erroAuth=otp_expired`, mensagem amigável exibida ("Esse link expirou ou já foi usado..."), 0 tela em branco. |
 | F | `profiles.ativo=false` continua sem acessar dados mesmo com credenciais válidas (regra já existente, só reconfirmada) | **PASSOU** — `POST /auth/v1/token?grant_type=password` com credenciais válidas de uma conta desativada → `200` (GoTrue não checa `profiles.ativo`, comportamento arquitetural já documentado em BR-028/AUT-007), mas `GET /rest/v1/clientes` com o token dessa sessão → `200` com corpo `[]` (RLS bloqueia). Nenhuma mudança de código feita aqui — só reconfirmado. |
-| G | Nenhum redirecionamento para `localhost`/DEV-QA em nenhum momento | **PASSOU** — toda URL observada durante A, B, D, E ficou em `https://tropicaltransportes.github.io/SISTEMA-NOVO/...`; `generate_link` (antes e depois da correção de config) sempre retornou `redirect_to` apontando pra essa URL de produção depois da correção da seção 2; bundle publicado (`assets/supabaseClient-Dh4Js_sG.js`) contém `wtxbodhqyasdlmyoyjur` e **não** contém `jzjbiejmcaygwycvqggm` em nenhum momento. |
+| G | Nenhum redirecionamento para `localhost`/DEV-QA em nenhum momento | **PASSOU** — toda URL observada durante A, B, D, E ficou em `https://tropicaltransportes.github.io/SISTEMA-NOVO/...`; `generate_link` (antes e depois da correção de config) sempre retornou `redirect_to` apontando pra essa URL de produção depois da correção da seção 2; bundle publicado (`assets/supabaseClient-Dh4Js_sG.js`) contém a referência do projeto de produção e **não** contém a do projeto DEV/QA em nenhum momento. |
 
 Conta de teste `smoke.auth01@tropicaltransportes.com.br` **desativada
 (`profiles.ativo=false`) ao final** desta rodada — preservada como
@@ -270,8 +272,8 @@ Confirmado no site público real (`https://tropicaltransportes.github.io/SISTEMA
 - Esqueci minha senha — confirmado (TESTE B).
 - Definir nova senha (convite e recuperação) — confirmado (TESTE A e B).
 - Alterar senha (logado) — confirmado (TESTE D).
-- Bundle publicado aponta só para `wtxbodhqyasdlmyoyjur`, nunca para
-  `jzjbiejmcaygwycvqggm` ou `localhost`.
+- Bundle publicado aponta só para o projeto de produção, nunca para o
+  projeto DEV/QA ou `localhost`.
 
 **Achado operacional (não é bug de código, registrado para conhecimento)**:
 o `index.html` do GitHub Pages é servido com `Cache-Control: max-age=600`.
@@ -344,9 +346,9 @@ telas novas de auth foram uma adição visual em `AppShell.vue` (botão
 
 **CICLO DE AUTENTICAÇÃO CORRIGIDO E HOMOLOGADO EM PRODUÇÃO.**
 
-O administrador real (Hammed) precisa agora acessar
+O administrador técnico real precisa agora acessar
 `https://tropicaltransportes.github.io/SISTEMA-NOVO/`, clicar em "Esqueci
-minha senha", informar `hammedgurgel@tropicaltransportes.com.br`, e seguir
+minha senha", informar o e-mail cadastrado, e seguir
 o link recebido para definir sua senha definitiva — a senha temporária
 anterior não funciona mais.
 
