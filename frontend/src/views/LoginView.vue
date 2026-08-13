@@ -16,6 +16,21 @@ const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 
+// ETAPA AUTH-01 — mensagens vindas de outros pontos do ciclo de
+// autenticação: link de convite/recuperação inválido ou expirado
+// (?erroAuth=..., setado em main.js a partir do hash cru do GoTrue) e
+// confirmação de senha redefinida com sucesso (?senhaRedefinida=1, setado
+// em DefinirSenhaView.vue depois do fluxo de recuperação).
+const MENSAGENS_ERRO_AUTH = {
+  otp_expired: 'Esse link expirou ou já foi usado. Solicite um novo convite/recuperação.',
+  access_denied: 'Esse link não é mais válido. Solicite um novo convite/recuperação.',
+}
+const erroAuthUrl = route.query.erroAuth
+  ? MENSAGENS_ERRO_AUTH[route.query.erroAuth] ||
+    'Esse link não é mais válido. Solicite um novo convite/recuperação.'
+  : ''
+const senhaRedefinidaOk = route.query.senhaRedefinida === '1'
+
 async function entrar() {
   erro.value = ''
   carregando.value = true
@@ -52,9 +67,14 @@ async function entrar() {
         required
       />
 
+      <Message v-if="erroAuthUrl" severity="warn" :closable="false">{{ erroAuthUrl }}</Message>
+      <Message v-if="senhaRedefinidaOk" severity="success" :closable="false">
+        Senha redefinida com sucesso. Faça login com sua nova senha.
+      </Message>
       <Message v-if="erro" severity="error" :closable="false">{{ erro }}</Message>
 
       <Button type="submit" label="Entrar" :loading="carregando" class="botao-entrar" />
+      <Button label="Esqueci minha senha" text @click="router.push('/esqueci-senha')" />
     </form>
   </div>
 </template>

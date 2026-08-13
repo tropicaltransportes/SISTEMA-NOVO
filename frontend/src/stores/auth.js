@@ -28,13 +28,22 @@ export const useAuthStore = defineStore('auth', {
       }
       this.loading = false
 
-      supabase.auth.onAuthStateChange(async (_event, session) => {
+      supabase.auth.onAuthStateChange(async (event, session) => {
         this.session = session
         if (session) {
           await this.carregarPerfil()
           await this._encerrarSeInativo()
         } else {
           this.profile = null
+        }
+        // ETAPA AUTH-01 — rede de segurança para o caso de o evento
+        // PASSWORD_RECOVERY chegar com o app já rodando (ex.: aba aberta
+        // recebe o hash de recuperação depois do boot). O caminho
+        // principal (main.js, na inicialização) já cobre o caso mais
+        // comum de forma determinística; isto aqui não deixa o usuário
+        // "logado" sem ter passado pela tela de definir senha.
+        if (event === 'PASSWORD_RECOVERY' && window.location.hash !== '#/definir-senha') {
+          window.location.hash = '#/definir-senha'
         }
       })
     },
@@ -81,6 +90,34 @@ export const useAuthStore = defineStore('auth', {
       await supabase.auth.signOut()
       this.session = null
       this.profile = null
+    },
+    // ETAPA AUTH-01 — seção 4 (esqueci minha senha). Não revela se o
+    // e-mail existe: o próprio endpoint /recover do Supabase Auth já
+    // responde de forma uniforme independente disso (comportamento padrão
+    // seguro), então não há branch de erro "e-mail não encontrado" aqui.
+    async solicitarRecuperacaoSenha(email) {
+      const redirectTo = window.location.origin + import.meta.env.BASE_URL
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
+      if (error) throw error
+    },
+    // ETAPA AUTH-01 — seções 3 (primeiro acesso/convite) e 4 (recuperação):
+    // usado pela tela /definir-senha, que já tem uma sessão válida
+    // (estabelecida pelo próprio GoTrue ao consumir o token da URL).
+    async definirNovaSenha(novaSenha) {
+      const { error } = await supabase.auth.updateUser({ password: novaSenha })
+      if (error) throw error
+      // Sessão pode ter sido re-emitida; garante que o estado local reflita
+      // o usuário já com senha própria definida.
+      const { data } = await supabase.auth.getSession()
+      this.session = data.session
+      if (this.session) {
+        await this.carregarPerfil()
+      }
+    },
+    // ETAPA AUTH-01 — seção 5 (trocar senha estando logado).
+    async alterarSenha(novaSenha) {
+      const { error } = await supabase.auth.updateUser({ password: novaSenha })
+      if (error) throw error
     },
   },
 })

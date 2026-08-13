@@ -9,6 +9,24 @@ const routes = [
     meta: { public: true },
   },
   {
+    // ETAPA AUTH-01 — "esqueci minha senha": e-mail -> resetPasswordForEmail.
+    path: '/esqueci-senha',
+    name: 'esqueci-senha',
+    component: () => import('../views/EsqueciSenhaView.vue'),
+    meta: { public: true },
+  },
+  {
+    // ETAPA AUTH-01 — destino do convite/recuperação de senha: exige uma
+    // sessão (o GoTrue já autentica ao consumir o token da URL), mas NÃO é
+    // marcada como `public` nem tem `requiresAuth` no sentido normal — tem
+    // guarda própria em beforeEach (precisa apenas de sessão, não de perfil
+    // ativo/carregado, já que o usuário pode ainda não ter senha definida).
+    path: '/definir-senha',
+    name: 'definir-senha',
+    component: () => import('../views/DefinirSenhaView.vue'),
+    meta: { public: true, semSessaoRedirecionaLogin: true },
+  },
+  {
     path: '/',
     component: () => import('../layouts/AppShell.vue'),
     meta: { requiresAuth: true },
@@ -133,6 +151,12 @@ const routes = [
         component: () => import('../views/admin/StatusConfiguracaoView.vue'),
         meta: { perfis: ['encarregado', 'suporte_administrativo', 'administrador_tecnico'] },
       },
+      {
+        // ETAPA AUTH-01 — trocar senha estando logado (menu do usuário).
+        path: 'perfil/alterar-senha',
+        name: 'perfil-alterar-senha',
+        component: () => import('../views/perfil/AlterarSenhaView.vue'),
+      },
     ],
   },
 ]
@@ -149,6 +173,13 @@ router.beforeEach(async (to) => {
   }
 
   if (to.meta.public) {
+    // ETAPA AUTH-01 — /definir-senha é pública no sentido de não exigir
+    // perfil/permissão, mas precisa de uma sessão (o GoTrue já autentica
+    // sozinho ao consumir o token de convite/recuperação da URL, ver
+    // main.js). Sem sessão nenhuma, não há o que definir — manda pro login.
+    if (to.meta.semSessaoRedirecionaLogin && !auth.session) {
+      return { name: 'login' }
+    }
     if (auth.autenticado && to.name === 'login') {
       return { path: '/' }
     }

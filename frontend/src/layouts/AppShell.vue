@@ -149,7 +149,16 @@ async function sair() {
       <div class="main-col">
         <header class="topbar">
           <div class="titulo-pagina">{{ tituloPagina }}</div>
-          <Button label="Sair" icon="pi pi-sign-out" severity="secondary" text @click="sair" />
+          <div class="topbar-acoes">
+            <Button
+              label="Alterar senha"
+              icon="pi pi-lock"
+              severity="secondary"
+              text
+              @click="router.push('/perfil/alterar-senha')"
+            />
+            <Button label="Sair" icon="pi pi-sign-out" severity="secondary" text @click="sair" />
+          </div>
         </header>
         <main class="pagina">
           <router-view />
@@ -311,6 +320,11 @@ nav {
   font-size: 19px;
   font-weight: 700;
   letter-spacing: -0.3px;
+}
+.topbar-acoes {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 .pagina {
   flex: 1;
