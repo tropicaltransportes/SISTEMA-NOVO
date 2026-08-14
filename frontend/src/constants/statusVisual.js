@@ -46,3 +46,14 @@ export const STATUS_SOLICITACAO = {
   convertida_os: { label: 'Convertida em OS', cor: '#4ade80', severidade: 'success' },
   cancelada: { label: 'Cancelada', cor: '#f87171', severidade: 'danger' },
 }
+
+// ETAPA UX-ORCAMENTOS-01 — status de decisão POR ITEM do orçamento
+// (orcamento_itens.status_aprovacao), namespace distinto do status do
+// orçamento inteiro (STATUS_ORCAMENTO acima). Mesmas severidades já usadas
+// nos mapas locais `tagDecisao`/`tagSeveridade` de OrcamentosList.vue e
+// OrcamentoPdf.vue.
+export const STATUS_ITEM_ORCAMENTO = {
+  pendente: { label: 'Pendente', cor: '#facc15', severidade: 'warn' },
+  aprovado: { label: 'Aprovado', cor: '#4ade80', severidade: 'success' },
+  rejeitado: { label: 'Rejeitado', cor: '#f87171', severidade: 'danger' },
+}

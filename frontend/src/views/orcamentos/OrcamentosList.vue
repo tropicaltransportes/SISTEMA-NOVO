@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuthStore } from '../../stores/auth'
@@ -14,6 +14,10 @@ import InputNumber from 'primevue/inputnumber'
 import Textarea from 'primevue/textarea'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
+import IconField from 'primevue/iconfield'
+import InputIcon from 'primevue/inputicon'
+import Menu from 'primevue/menu'
+import { STATUS_ORCAMENTO, STATUS_ITEM_ORCAMENTO } from '../../constants/statusVisual'
 
 const route = useRoute()
 const router = useRouter()
@@ -28,15 +32,9 @@ const orcamentos = ref([])
 const veiculos = ref([])
 const pecas = ref([])
 const carregando = ref(true)
-
-const severidadeStatus = {
-  rascunho: 'secondary',
-  enviado: 'warn',
-  aprovado: 'success',
-  parcialmente_aprovado: 'warn',
-  rejeitado: 'danger',
-  substituido: 'contrast',
-}
+const erro = ref(false)
+const filtro = ref('')
+const temFiltroAtivo = computed(() => filtro.value.trim() !== '')
 
 // ETAPA 5 (P1-B) — APR-002: totais calculados a partir do status_aprovacao
 // de CADA item (valor originalmente orçado = soma de todos os itens, igual
@@ -55,14 +53,27 @@ function temItemPendente(orc) {
 function formatarMoeda(valor) {
   return (valor ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
+function formatarData(dataStr) {
+  if (!dataStr) return '—'
+  return new Date(dataStr).toLocaleDateString('pt-BR')
+}
+// ETAPA UX-ORCAMENTOS-01 — item 8: mesma fórmula usada no backend para o
+// número legível (rpc_dados_pdf_orcamento, supabase/migrations/20260814111000_p1c_relatorios.sql:33
+// — 'ORC-' || substr(o.id::text, 1, 8) || '-V' || o.versao). Não é um
+// número novo: é o mesmo, calculado aqui com id/versao que a listagem já
+// busca, para não precisar chamar a RPC (feita para 1 orçamento) por linha.
+function numeroLegivel(orc) {
+  return `ORC-${orc.id.slice(0, 8)}-V${orc.versao}`
+}
 
 async function carregar() {
   carregando.value = true
+  erro.value = false
   const [respOrc, respVeiculos, respPecas] = await Promise.all([
     supabase
       .from('orcamentos')
       .select(
-        'id, versao, status, valor_total, autorizado_por_nome, comprovante_path, criado_em, solicitacao_id, veiculo:veiculos(id, placa, cliente_id), cliente:clientes(id, nome, tipo), orcamento_itens(id, peca_id, descricao, quantidade, valor_unitario, status_aprovacao, meio_aprovacao, autorizado_por_nome, autorizado_em, registrado_por, comprovante_path, observacao), orcamento_acrescimos(id, valor_acrescimo, justificativa, criado_em)'
+        'id, versao, status, valor_total, autorizado_por_nome, comprovante_path, criado_em, solicitacao_id, veiculo:veiculos(id, placa, prefixo, cliente_id), cliente:clientes(id, nome, tipo), orcamento_itens(id, peca_id, descricao, quantidade, valor_unitario, status_aprovacao, meio_aprovacao, autorizado_por_nome, autorizado_em, registrado_por, comprovante_path, observacao), orcamento_acrescimos(id, valor_acrescimo, justificativa, criado_em)'
       )
       .order('criado_em', { ascending: false }),
     supabase.from('veiculos').select('id, placa, prefixo, cliente_id, cliente:clientes(nome, tipo)').is('deleted_at', null).order('placa'),
@@ -70,9 +81,10 @@ async function carregar() {
   ])
 
   if (respOrc.error) {
+    erro.value = true
     toast.add({ severity: 'error', summary: 'Erro ao carregar orçamentos', detail: respOrc.error.message, life: 5000 })
   } else {
-    orcamentos.value = respOrc.data
+    orcamentos.value = (respOrc.data ?? []).map((o) => ({ ...o, numero_legivel: numeroLegivel(o) }))
   }
   veiculos.value = respVeiculos.data ?? []
   pecas.value = respPecas.data ?? []
@@ -99,6 +111,12 @@ function abrirNovo() {
   clientRequestId = crypto.randomUUID()
   dialogoNovoAberto.value = true
 }
+
+// ETAPA UX-ORCAMENTOS-01 — item 17: mostra o cliente já derivado do
+// veículo escolhido, só como informação (mesma lógica de criarRascunho,
+// que já usa veiculo.cliente_id) — não cria vínculo novo, só exibe o que
+// já seria usado ao salvar.
+const veiculoSelecionadoNovo = computed(() => veiculos.value.find((v) => v.id === formNovo.value.veiculo_id) ?? null)
 
 async function criarRascunho() {
   if (!formNovo.value.veiculo_id) {
@@ -158,21 +176,45 @@ const salvandoItens = ref(false)
 function abrirItens(orc) {
   orcamentoAtual.value = orc
   itens.value = orc.orcamento_itens.map((i) => ({ id: i.id, peca_id: i.peca_id, descricao: i.descricao, quantidade: i.quantidade, valor_unitario: i.valor_unitario }))
+  resetarFormNovoItem()
   dialogoItensAberto.value = true
 }
 
-function adicionarItemPeca() {
-  itens.value.push({ id: null, peca_id: null, descricao: '', quantidade: 1, valor_unitario: 0 })
+// ETAPA UX-ORCAMENTOS-01 — item 18: substitui as N linhas todas
+// editáveis-inline por um formulário único de "adicionar item" + tabela de
+// itens já incluídos (só remoção). O array `itens` (mesmo shape de antes:
+// {id, peca_id, descricao, quantidade, valor_unitario}) e `salvarItens()`
+// continuam idênticos — é só a interação de montar esse array que mudou.
+const formNovoItem = ref({ tipo: 'peca', peca_id: null, descricao: '', quantidade: 1, valor_unitario: 0 })
+function resetarFormNovoItem() {
+  formNovoItem.value = { tipo: 'peca', peca_id: null, descricao: '', quantidade: 1, valor_unitario: 0 }
 }
-function adicionarItemMaoDeObra() {
-  itens.value.push({ id: null, peca_id: null, descricao: 'Mão de obra', quantidade: 1, valor_unitario: 0 })
+function selecionouPecaNovoItem() {
+  const p = pecas.value.find((x) => x.id === formNovoItem.value.peca_id)
+  if (p && !formNovoItem.value.descricao) formNovoItem.value.descricao = p.descricao
+}
+function adicionarItemDoFormulario() {
+  const f = formNovoItem.value
+  const descricao = f.descricao || (f.tipo === 'mao_obra' ? 'Mão de obra' : '')
+  if (!descricao || !f.quantidade || f.quantidade <= 0) {
+    toast.add({ severity: 'warn', summary: 'Preencha descrição e quantidade (maior que zero) antes de adicionar', life: 4000 })
+    return
+  }
+  itens.value.push({
+    id: null,
+    peca_id: f.tipo === 'peca' ? f.peca_id || null : null,
+    descricao,
+    quantidade: f.quantidade,
+    valor_unitario: f.valor_unitario ?? 0,
+  })
+  resetarFormNovoItem()
 }
 function removerItem(index) {
   itens.value.splice(index, 1)
 }
-function selecionouPeca(item) {
-  const p = pecas.value.find((x) => x.id === item.peca_id)
-  if (p && !item.descricao) item.descricao = p.descricao
+const totalItensAtual = computed(() => itens.value.reduce((s, i) => s + i.quantidade * i.valor_unitario, 0))
+function tipoItem(item) {
+  return item.peca_id ? 'Peça' : 'Mão de obra'
 }
 
 async function salvarItens() {
@@ -470,7 +512,45 @@ async function decidirItem(item, decisao) {
   else dialogoDecisaoAberto.value = false
 }
 
-const tagDecisao = { pendente: 'warn', aprovado: 'success', rejeitado: 'danger' }
+// ETAPA UX-ORCAMENTOS-01 — item 12: reduz a coluna Ações a 1-2 botões
+// primários visíveis por status (preservados como já eram) + um menu de
+// três pontos com o resto — mesmas condições de v-if de antes, só
+// redistribuídas entre "botão" e "item de menu". Nenhuma ação nova, nenhuma
+// condição alterada.
+function construirMenuAcoes(orc) {
+  if (!orc) return []
+  const lista = []
+  if (orc.status === 'rascunho' && podeGerir()) {
+    lista.push({ label: 'Aplicar desconto', icon: 'pi pi-percentage', command: () => abrirDesconto(orc) })
+  }
+  if (orc.status === 'enviado') {
+    if (podeAutorizar()) {
+      lista.push({ label: 'Registrar autorização', icon: 'pi pi-verified', command: () => abrirAutorizacao(orc) })
+    }
+    if (podeGerir()) {
+      lista.push({ label: 'Aprovar tudo', icon: 'pi pi-check-circle', command: () => confirmarAprovacao(orc) })
+      lista.push({ label: 'Rejeitar tudo', icon: 'pi pi-times-circle', command: () => confirmarRejeicao(orc) })
+    }
+  }
+  if (['aprovado', 'parcialmente_aprovado'].includes(orc.status) && podeGerir()) {
+    lista.push({ label: 'Ver decisões', icon: 'pi pi-eye', command: () => abrirDecisao(orc) })
+    if (orc.status === 'aprovado') {
+      lista.push({ label: 'Registrar acréscimo', icon: 'pi pi-plus-circle', command: () => abrirAcrescimo(orc) })
+    }
+  }
+  if (['enviado', 'aprovado', 'parcialmente_aprovado', 'rejeitado'].includes(orc.status) && podeGerir()) {
+    lista.push({ label: 'Nova versão', icon: 'pi pi-copy', command: () => novaVersao(orc) })
+  }
+  return lista
+}
+
+const menuAcoes = ref()
+const orcamentoMenuAtual = ref(null)
+const itensMenuAcoesAtual = computed(() => construirMenuAcoes(orcamentoMenuAtual.value))
+function abrirMenuAcoes(event, orc) {
+  orcamentoMenuAtual.value = orc
+  menuAcoes.value.toggle(event)
+}
 
 onMounted(() => {
   carregar().then(() => {
@@ -481,83 +561,140 @@ onMounted(() => {
 
 <template>
   <div>
-    <div class="cabecalho">
-      <h2>Orçamentos</h2>
-      <Button v-if="podeGerir()" label="Novo Orçamento" icon="pi pi-plus" @click="abrirNovo" />
+    <div class="pagina-cabecalho-linha">
+      <div class="pagina-cabecalho">
+        <h1 class="pagina-titulo">Orçamentos</h1>
+        <p class="pagina-subtitulo">Gerencie os orçamentos emitidos pela oficina.</p>
+      </div>
+      <Button v-if="podeGerir()" label="Novo Orçamento" icon="pi pi-plus" class="btn-gradiente" @click="abrirNovo" />
     </div>
 
-    <DataTable :value="orcamentos" :loading="carregando" paginator :rows="15" dataKey="id" stripedRows>
-      <Column header="Veículo">
-        <template #body="{ data }">{{ data.veiculo?.placa }}</template>
-      </Column>
-      <Column header="Cliente">
-        <template #body="{ data }">{{ data.cliente?.nome }}</template>
-      </Column>
-      <Column field="versao" header="Versão" style="width: 90px" />
-      <Column header="Status">
-        <template #body="{ data }">
-          <Tag :severity="severidadeStatus[data.status]" :value="data.status" />
-        </template>
-      </Column>
-      <Column header="Valor Original">
-        <template #body="{ data }">{{ formatarMoeda(data.valor_total) }}</template>
-      </Column>
-      <!-- ETAPA 5 (P1-B) — APR-002: totais por decisão de item, não mais só o valor_total do orçamento inteiro. -->
-      <Column header="Valor Aprovado">
-        <template #body="{ data }"><span style="color:#15803d;font-weight:600">{{ formatarMoeda(valorAprovado(data)) }}</span></template>
-      </Column>
-      <Column header="Valor Rejeitado">
-        <template #body="{ data }"><span style="color:#b91c1c">{{ formatarMoeda(valorRejeitado(data)) }}</span></template>
-      </Column>
-      <Column header="Acréscimos" v-if="true">
-        <template #body="{ data }">
-          {{ formatarMoeda(data.orcamento_acrescimos.reduce((s, a) => s + a.valor_acrescimo, 0)) }}
-        </template>
-      </Column>
-      <Column header="Ações" style="width: 460px">
-        <template #body="{ data }">
-          <template v-if="data.status === 'rascunho' && podeGerir()">
-            <Button icon="pi pi-list" label="Itens" size="small" text @click="abrirItens(data)" />
-            <Button icon="pi pi-percentage" label="Desconto" size="small" text @click="abrirDesconto(data)" />
-            <Button icon="pi pi-send" label="Enviar" size="small" @click="enviar(data)" />
+    <div class="cabecalho">
+      <IconField class="busca">
+        <InputIcon class="pi pi-search" />
+        <InputText v-model="filtro" placeholder="Buscar por cliente, veículo, número ou placa" />
+      </IconField>
+    </div>
+
+    <div class="panel">
+      <DataTable
+        :value="orcamentos"
+        :loading="carregando"
+        :filters="{ global: { value: filtro, matchMode: 'contains' } }"
+        :globalFilterFields="['cliente.nome', 'veiculo.placa', 'numero_legivel']"
+        paginator
+        :rows="15"
+        dataKey="id"
+        stripedRows
+        paginatorTemplate="CurrentPageReport FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink"
+        currentPageReportTemplate="Mostrando {first} a {last} de {totalRecords} orçamentos"
+      >
+        <Column header="Nº Orçamento" style="width: 150px">
+          <template #body="{ data }"><span class="placa-destaque">{{ data.numero_legivel }}</span></template>
+        </Column>
+        <Column header="Cliente">
+          <template #body="{ data }">{{ data.cliente?.nome || '—' }}</template>
+        </Column>
+        <Column header="Veículo">
+          <template #body="{ data }">
+            <span class="placa-destaque">{{ data.veiculo?.placa || '—' }}</span>
+            <span v-if="data.veiculo?.prefixo" class="prefixo-inline">({{ data.veiculo.prefixo }})</span>
           </template>
-          <Button icon="pi pi-file-pdf" label="PDF" size="small" text @click="irParaPdf(data)" />
-          <template v-if="data.status === 'enviado'">
-            <Button v-if="podeAutorizar()" label="Autorização" size="small" text @click="abrirAutorizacao(data)" />
-            <!-- ETAPA 5 (P1-B) — APR-002: decisão por item substitui o antigo aprovar/rejeitar tudo-ou-nada como fluxo principal. -->
-            <Button v-if="podeAutorizar()" label="Decidir Itens" icon="pi pi-check-square" size="small" severity="success" @click="abrirDecisao(data)" />
-            <Button v-if="podeGerir()" label="Aprovar tudo" size="small" text @click="confirmarAprovacao(data)" />
-            <Button v-if="podeGerir()" label="Rejeitar tudo" size="small" severity="danger" text @click="confirmarRejeicao(data)" />
+        </Column>
+        <Column header="Versão" style="width: 80px" bodyClass="col-numero">
+          <template #body="{ data }">V{{ data.versao }}</template>
+        </Column>
+        <Column header="Emitido em" style="width: 110px">
+          <template #body="{ data }">{{ formatarData(data.criado_em) }}</template>
+        </Column>
+        <Column header="Status">
+          <template #body="{ data }">
+            <Tag :severity="STATUS_ORCAMENTO[data.status]?.severidade" :value="STATUS_ORCAMENTO[data.status]?.label ?? data.status" />
           </template>
-          <template v-if="['aprovado', 'parcialmente_aprovado'].includes(data.status) && podeGerir()">
-            <Button label="Ver decisões" size="small" text @click="abrirDecisao(data)" />
-            <Button v-if="data.status === 'aprovado'" label="Acréscimo" size="small" text @click="abrirAcrescimo(data)" />
-            <Button label="Criar OS" size="small" severity="success" @click="criarOs(data)" />
+        </Column>
+        <Column header="Valor Original" bodyClass="col-valor">
+          <template #body="{ data }"><span class="valor valor-original">{{ formatarMoeda(data.valor_total) }}</span></template>
+        </Column>
+        <!-- ETAPA 5 (P1-B) — APR-002: totais por decisão de item, não mais só o valor_total do orçamento inteiro. -->
+        <Column header="Valor Aprovado" bodyClass="col-valor">
+          <template #body="{ data }"><span class="valor valor-aprovado">{{ formatarMoeda(valorAprovado(data)) }}</span></template>
+        </Column>
+        <Column header="Valor Rejeitado" bodyClass="col-valor">
+          <template #body="{ data }"><span class="valor valor-rejeitado">{{ formatarMoeda(valorRejeitado(data)) }}</span></template>
+        </Column>
+        <Column header="Acréscimos" bodyClass="col-valor">
+          <template #body="{ data }">
+            <span class="valor valor-acrescimo">{{ formatarMoeda(data.orcamento_acrescimos.reduce((s, a) => s + a.valor_acrescimo, 0)) }}</span>
           </template>
-          <Button
-            v-if="['enviado', 'aprovado', 'parcialmente_aprovado', 'rejeitado'].includes(data.status) && podeGerir()"
-            label="Nova Versão"
-            size="small"
-            text
-            @click="novaVersao(data)"
-          />
+        </Column>
+        <Column header="Ações" style="width: 210px">
+          <template #body="{ data }">
+            <div class="acoes-linha">
+              <template v-if="data.status === 'rascunho' && podeGerir()">
+                <Button label="Itens" size="small" text @click="abrirItens(data)" />
+                <Button label="Enviar" icon="pi pi-send" size="small" @click="enviar(data)" />
+              </template>
+              <Button
+                v-if="data.status === 'enviado' && podeAutorizar()"
+                label="Decidir Itens"
+                icon="pi pi-check-square"
+                size="small"
+                severity="success"
+                @click="abrirDecisao(data)"
+              />
+              <Button
+                v-if="['aprovado', 'parcialmente_aprovado'].includes(data.status) && podeGerir()"
+                label="Criar OS"
+                size="small"
+                severity="success"
+                @click="criarOs(data)"
+              />
+              <Button icon="pi pi-file-pdf" text rounded size="small" aria-label="PDF" @click="irParaPdf(data)" />
+              <Button
+                v-if="construirMenuAcoes(data).length"
+                icon="pi pi-ellipsis-v"
+                text
+                rounded
+                size="small"
+                aria-label="Mais ações"
+                @click="abrirMenuAcoes($event, data)"
+              />
+            </div>
+          </template>
+        </Column>
+
+        <template #empty>
+          <div class="estado-vazio-tabela">
+            <i class="pi" :class="erro ? 'pi-exclamation-triangle' : 'pi-file-edit'"></i>
+            <p v-if="erro">Não foi possível carregar os orçamentos.</p>
+            <p v-else-if="temFiltroAtivo">Nenhum orçamento corresponde aos critérios informados.</p>
+            <p v-else>Nenhum orçamento encontrado.</p>
+            <Button v-if="!erro && podeGerir()" label="Novo Orçamento" icon="pi pi-plus" size="small" @click="abrirNovo" />
+          </div>
         </template>
-      </Column>
-    </DataTable>
+      </DataTable>
+    </div>
+
+    <Menu ref="menuAcoes" :model="itensMenuAcoesAtual" :popup="true" />
 
     <!-- Novo orçamento -->
-    <Dialog v-model:visible="dialogoNovoAberto" modal header="Novo Orçamento" style="width: 420px">
-      <div class="form-campo">
-        <label>Veículo</label>
-        <Select
-          v-model="formNovo.veiculo_id"
-          :options="veiculos"
-          optionLabel="placa"
-          optionValue="id"
-          filter
-          placeholder="Selecione o veículo"
-          :disabled="!!route.query.veiculo_id"
-        />
+    <Dialog v-model:visible="dialogoNovoAberto" modal header="Novo Orçamento" style="width: 440px">
+      <div class="bloco-form">
+        <span class="bloco-form-titulo">Veículo</span>
+        <div class="form-campo">
+          <Select
+            v-model="formNovo.veiculo_id"
+            :options="veiculos"
+            optionLabel="placa"
+            optionValue="id"
+            filter
+            placeholder="Selecione o veículo"
+            :disabled="!!route.query.veiculo_id"
+          />
+          <p v-if="veiculoSelecionadoNovo?.cliente?.nome" class="info-derivada">
+            Cliente: <strong>{{ veiculoSelecionadoNovo.cliente.nome }}</strong>
+          </p>
+        </div>
       </div>
       <template #footer>
         <Button label="Cancelar" text @click="dialogoNovoAberto = false" />
@@ -566,28 +703,60 @@ onMounted(() => {
     </Dialog>
 
     <!-- Itens -->
-    <Dialog v-model:visible="dialogoItensAberto" modal header="Itens do Orçamento" style="width: 680px">
-      <div v-for="(item, index) in itens" :key="index" class="linha-item">
-        <Select
-          v-model="item.peca_id"
-          :options="pecas"
-          optionLabel="descricao"
-          optionValue="id"
-          filter
-          showClear
-          placeholder="Peça (opcional)"
-          class="item-peca"
-          @update:modelValue="selecionouPeca(item)"
-        />
-        <InputText v-model="item.descricao" placeholder="Descrição" class="item-descricao" />
-        <InputNumber v-model="item.quantidade" placeholder="Qtde" :minFractionDigits="0" :maxFractionDigits="3" class="item-qtd" />
-        <InputNumber v-model="item.valor_unitario" placeholder="Valor Unit." mode="currency" currency="BRL" locale="pt-BR" class="item-valor" />
-        <Button icon="pi pi-trash" text rounded severity="danger" @click="removerItem(index)" />
+    <Dialog v-model:visible="dialogoItensAberto" modal header="Itens do Orçamento" style="width: 92vw; max-width: 820px">
+      <div class="bloco-form">
+        <span class="bloco-form-titulo">Adicionar item</span>
+        <div class="item-add-grid">
+          <Select
+            v-model="formNovoItem.tipo"
+            :options="[{ label: 'Peça', value: 'peca' }, { label: 'Mão de obra', value: 'mao_obra' }]"
+            optionLabel="label"
+            optionValue="value"
+            class="add-tipo"
+          />
+          <Select
+            v-if="formNovoItem.tipo === 'peca'"
+            v-model="formNovoItem.peca_id"
+            :options="pecas"
+            optionLabel="descricao"
+            optionValue="id"
+            filter
+            showClear
+            placeholder="Peça (opcional)"
+            class="add-peca"
+            @update:modelValue="selecionouPecaNovoItem"
+          />
+          <InputText v-model="formNovoItem.descricao" placeholder="Descrição" class="add-descricao" />
+          <InputNumber v-model="formNovoItem.quantidade" placeholder="Qtde" :minFractionDigits="0" :maxFractionDigits="3" class="add-qtd" />
+          <InputNumber v-model="formNovoItem.valor_unitario" placeholder="Valor unit." mode="currency" currency="BRL" locale="pt-BR" class="add-valor" />
+          <Button label="Adicionar" icon="pi pi-plus" size="small" class="add-botao" @click="adicionarItemDoFormulario" />
+        </div>
       </div>
-      <div class="botoes-item">
-        <Button label="Adicionar item de peça" icon="pi pi-plus" text size="small" @click="adicionarItemPeca" />
-        <Button label="Adicionar mão de obra" icon="pi pi-plus" text size="small" @click="adicionarItemMaoDeObra" />
+
+      <div class="bloco-form">
+        <span class="bloco-form-titulo">Itens incluídos</span>
+        <div v-if="itens.length === 0" class="itens-vazio">Nenhum item adicionado ainda.</div>
+        <table v-else class="itens-tabela">
+          <thead>
+            <tr><th>Item</th><th>Tipo</th><th>Qtde</th><th>Valor unit.</th><th>Subtotal</th><th></th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="(item, index) in itens" :key="index">
+              <td>{{ item.descricao }}</td>
+              <td><span class="badge-tipo-item" :class="item.peca_id ? 'badge-peca' : 'badge-mao-obra'">{{ tipoItem(item) }}</span></td>
+              <td>{{ item.quantidade }}</td>
+              <td>{{ formatarMoeda(item.valor_unitario) }}</td>
+              <td>{{ formatarMoeda(item.quantidade * item.valor_unitario) }}</td>
+              <td><Button icon="pi pi-trash" text rounded size="small" severity="danger" aria-label="Remover" @click="removerItem(index)" /></td>
+            </tr>
+          </tbody>
+        </table>
       </div>
+
+      <div class="item-total-footer">
+        Total do orçamento: <strong>{{ formatarMoeda(totalItensAtual) }}</strong>
+      </div>
+
       <template #footer>
         <Button label="Cancelar" text @click="dialogoItensAberto = false" />
         <Button label="Salvar Itens" :loading="salvandoItens" @click="salvarItens" />
@@ -595,7 +764,7 @@ onMounted(() => {
     </Dialog>
 
     <!-- Autorização / comprovante -->
-    <Dialog v-model:visible="dialogoAutorizacaoAberto" modal header="Autorização do Cliente" style="width: 420px">
+    <Dialog v-model:visible="dialogoAutorizacaoAberto" modal header="Autorização do Cliente" style="width: 440px">
       <div class="form-campo">
         <label>Autorizado por (nome)</label>
         <InputText v-model="formAutorizacao.autorizado_por_nome" />
@@ -611,30 +780,35 @@ onMounted(() => {
     </Dialog>
 
     <!-- Decisão por item (ETAPA 5/P1-B — APR-002/004/005/006) -->
-    <Dialog v-model:visible="dialogoDecisaoAberto" modal header="Aprovação por Item" style="width: 720px">
+    <Dialog v-model:visible="dialogoDecisaoAberto" modal header="Aprovação por Item" style="width: 92vw; max-width: 780px">
       <div v-if="orcamentoAtual">
-        <p class="hint">
-          Valor original: <strong>{{ formatarMoeda(orcamentoAtual.valor_total) }}</strong> —
-          Aprovado: <strong style="color:#15803d">{{ formatarMoeda(valorAprovado(orcamentoAtual)) }}</strong> —
-          Rejeitado: <strong style="color:#b91c1c">{{ formatarMoeda(valorRejeitado(orcamentoAtual)) }}</strong>
+        <p class="resumo-decisao">
+          Valor original: <strong>{{ formatarMoeda(orcamentoAtual.valor_total) }}</strong>
+          <span class="valor valor-aprovado">Aprovado: {{ formatarMoeda(valorAprovado(orcamentoAtual)) }}</span>
+          <span class="valor valor-rejeitado">Rejeitado: {{ formatarMoeda(valorRejeitado(orcamentoAtual)) }}</span>
         </p>
 
-        <div class="form-campo" v-if="temItemPendente(orcamentoAtual) && podeAutorizar()">
-          <label>Meio de aprovação (aplicado à próxima decisão)</label>
-          <Select v-model="formDecisao.meio_aprovacao" :options="meiosAprovacao" optionLabel="label" optionValue="value" />
-          <label>Autorizado por (nome do cliente/responsável)</label>
-          <InputText v-model="formDecisao.autorizado_por_nome" placeholder="Nome de quem autorizou" />
-          <template v-if="formDecisao.meio_aprovacao === 'email'">
+        <div class="bloco-form" v-if="temItemPendente(orcamentoAtual) && podeAutorizar()">
+          <span class="bloco-form-titulo">Decisão</span>
+          <div class="form-campo">
+            <label>Meio de aprovação (aplicado à próxima decisão)</label>
+            <Select v-model="formDecisao.meio_aprovacao" :options="meiosAprovacao" optionLabel="label" optionValue="value" />
+          </div>
+          <div class="form-campo">
+            <label>Autorizado por (nome do cliente/responsável)</label>
+            <InputText v-model="formDecisao.autorizado_por_nome" placeholder="Nome de quem autorizou" />
+          </div>
+          <div class="form-campo" v-if="formDecisao.meio_aprovacao === 'email'">
             <label>Comprovante (evidência do e-mail)</label>
             <input type="file" @change="onArquivoDecisaoSelecionado" accept="image/*,application/pdf,.eml,.msg" />
-          </template>
-          <template v-if="formDecisao.meio_aprovacao === 'verbal_documentado'">
+          </div>
+          <div class="form-campo" v-if="formDecisao.meio_aprovacao === 'verbal_documentado'">
             <label>Observação (obrigatória — quem atendeu, quando, o que foi dito)</label>
             <Textarea v-model="formDecisao.observacao" rows="2" autoResize />
-          </template>
+          </div>
         </div>
 
-        <table class="tabela-itens-decisao">
+        <table class="itens-tabela">
           <thead>
             <tr><th>Item</th><th>Valor</th><th>Status</th><th>Meio</th><th>Autorizado por</th><th>Ação</th></tr>
           </thead>
@@ -642,7 +816,7 @@ onMounted(() => {
             <tr v-for="item in orcamentoAtual.orcamento_itens" :key="item.id">
               <td>{{ item.descricao }} <span class="hint">({{ item.quantidade }}x)</span></td>
               <td>{{ formatarMoeda(item.quantidade * item.valor_unitario) }}</td>
-              <td><Tag :severity="tagDecisao[item.status_aprovacao]" :value="item.status_aprovacao" /></td>
+              <td><Tag :severity="STATUS_ITEM_ORCAMENTO[item.status_aprovacao]?.severidade" :value="STATUS_ITEM_ORCAMENTO[item.status_aprovacao]?.label ?? item.status_aprovacao" /></td>
               <td>{{ item.meio_aprovacao || '—' }}</td>
               <td>{{ item.autorizado_por_nome || '—' }}</td>
               <td>
@@ -662,7 +836,7 @@ onMounted(() => {
     </Dialog>
 
     <!-- Acréscimo -->
-    <Dialog v-model:visible="dialogoAcrescimoAberto" modal header="Registrar Acréscimo" style="width: 420px">
+    <Dialog v-model:visible="dialogoAcrescimoAberto" modal header="Registrar Acréscimo" style="width: 440px">
       <div class="form-campo">
         <label>Valor do Acréscimo</label>
         <InputNumber v-model="formAcrescimo.valor_acrescimo" mode="currency" currency="BRL" locale="pt-BR" />
@@ -678,7 +852,11 @@ onMounted(() => {
     </Dialog>
 
     <!-- Desconto (ETAPA 6/P1-C — Decisão 7) -->
-    <Dialog v-model:visible="dialogoDescontoAberto" modal header="Aplicar Desconto" style="width: 420px">
+    <Dialog v-model:visible="dialogoDescontoAberto" modal header="Aplicar Desconto" style="width: 440px">
+      <p v-if="orcamentoAtual" class="resumo-decisao">
+        Valor atual: <strong>{{ formatarMoeda(orcamentoAtual.valor_total) }}</strong>
+      </p>
+
       <div class="form-campo">
         <label>Modo</label>
         <Select v-model="formDesconto.modo" :options="[{ label: 'Percentual', value: 'percentual' }, { label: 'Valor fixo (R$)', value: 'valor' }]" optionLabel="label" optionValue="value" />
@@ -695,7 +873,20 @@ onMounted(() => {
         <label>Motivo (obrigatório)</label>
         <Textarea v-model="formDesconto.motivo" rows="3" autoResize placeholder="Mínimo 5 caracteres" />
       </div>
-      <p class="hint">Bloqueado acima do teto configurado pelo administrador técnico; nunca reduz o valor final abaixo de zero. Se o orçamento já foi enviado/aprovado, use Nova Versão antes de alterar o desconto.</p>
+
+      <div class="info-box">
+        <i class="pi pi-info-circle"></i>
+        <div>
+          <strong>Regras do desconto</strong>
+          <ul>
+            <li>respeita o teto configurado pelo administrador técnico;</li>
+            <li>exige motivo (mínimo 5 caracteres);</li>
+            <li>nunca reduz o valor final abaixo de zero;</li>
+            <li>orçamento já enviado/aprovado exige Nova Versão antes de alterar o desconto.</li>
+          </ul>
+        </div>
+      </div>
+
       <template #footer>
         <Button label="Cancelar" text @click="dialogoDescontoAberto = false" />
         <Button label="Aplicar" :loading="salvandoDesconto" @click="salvarDesconto" />
@@ -705,11 +896,144 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.cabecalho {
+/* ETAPA UX-ORCAMENTOS-01 — mesma linguagem visual das telas irmãs
+   (item 29: telas irmãs). Duplicado por não tocar em arquivos de etapas já
+   entregues (ver MELHORIAS FUTURAS no relatório). */
+.pagina-cabecalho-linha {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+.pagina-cabecalho {
+  min-width: 0;
+}
+.pagina-titulo {
+  margin: 0 0 4px;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.4px;
+  color: var(--text-heading);
+}
+.pagina-subtitulo {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--text-secondary);
+}
+
+.cabecalho {
+  display: flex;
   align-items: center;
-  margin-bottom: 1rem;
+  gap: 14px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.btn-gradiente :deep(.p-button) {
+  background: var(--accent-gradient);
+  border: none;
+}
+
+.busca {
+  flex: 1;
+  min-width: 220px;
+  max-width: 420px;
+}
+.busca :deep(.p-inputtext) {
+  width: 100%;
+  height: 40px;
+  background: var(--surface);
+  border-color: var(--border-panel);
+  color: var(--text-body);
+}
+.busca :deep(.p-inputtext::placeholder) {
+  color: var(--text-faint);
+}
+.busca :deep(.p-inputtext:enabled:focus) {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+.busca :deep(.p-inputicon) {
+  color: var(--text-faint);
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border-panel);
+  border-radius: var(--card-radius);
+  padding: 6px 4px;
+  overflow-x: auto;
+}
+
+.placa-destaque {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--text-heading);
+  letter-spacing: 0.3px;
+}
+.prefixo-inline {
+  margin-left: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+:deep(.col-numero),
+:deep(.col-valor) {
+  text-align: right;
+}
+.valor {
+  font-variant-numeric: tabular-nums;
+}
+.valor-original {
+  color: var(--text-body);
+}
+.valor-aprovado {
+  color: var(--success);
+  font-weight: 600;
+}
+.valor-rejeitado {
+  color: var(--danger);
+}
+.valor-acrescimo {
+  color: var(--accent-text);
+}
+
+.acoes-linha {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.estado-vazio-tabela {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 48px 20px;
+  color: var(--text-faint);
+}
+.estado-vazio-tabela i {
+  font-size: 26px;
+}
+.estado-vazio-tabela p {
+  margin: 0;
+  font-size: 13.5px;
+}
+
+.bloco-form {
+  margin-bottom: 18px;
+}
+.bloco-form-titulo {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 8px;
 }
 .form-campo {
   display: flex;
@@ -719,44 +1043,155 @@ onMounted(() => {
 }
 .form-campo label {
   font-size: 0.8rem;
-  color: #4b5563;
+  color: var(--text-muted);
 }
-.linha-item {
+.info-derivada {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+/* Itens — formulário de adição */
+.item-add-grid {
   display: flex;
   gap: 0.5rem;
   align-items: center;
-  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+  background: var(--surface-hover);
+  border-radius: var(--card-radius);
+  padding: 12px;
 }
-.item-peca {
-  flex: 1.5;
-}
-.item-descricao {
-  flex: 2;
-}
-.item-qtd,
-.item-valor {
+.add-tipo {
   flex: 1;
+  min-width: 130px;
 }
-.botoes-item {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 0.25rem;
+.add-peca {
+  flex: 1.5;
+  min-width: 160px;
 }
-.hint {
-  color: #6b7280;
-  font-size: 0.85rem;
+.add-descricao {
+  flex: 1.5;
+  min-width: 160px;
 }
-.tabela-itens-decisao {
+.add-qtd,
+.add-valor {
+  flex: 1;
+  min-width: 100px;
+}
+.add-botao {
+  flex-shrink: 0;
+}
+
+.itens-vazio {
+  color: var(--text-faint);
+  font-size: 13px;
+  padding: 16px 0;
+}
+.itens-tabela {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 0.75rem;
+  margin-top: 0.5rem;
 }
-.tabela-itens-decisao th,
-.tabela-itens-decisao td {
+.itens-tabela th,
+.itens-tabela td {
   text-align: left;
-  padding: 0.4rem 0.5rem;
-  border-bottom: 1px solid #e5e7eb;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--border-panel);
   font-size: 0.85rem;
   vertical-align: middle;
+  color: var(--text-body);
+}
+.itens-tabela th {
+  color: var(--text-table-header);
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.badge-tipo-item {
+  display: inline-flex;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.badge-peca {
+  background: var(--info-bg);
+  color: var(--info);
+}
+.badge-mao-obra {
+  background: var(--accent-soft-bg);
+  color: var(--accent-text);
+}
+
+.item-total-footer {
+  text-align: right;
+  font-size: 14px;
+  color: var(--text-heading);
+  padding-top: 8px;
+  border-top: 1px solid var(--border-panel);
+}
+.item-total-footer strong {
+  font-size: 17px;
+  margin-left: 6px;
+}
+
+.resumo-decisao {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: baseline;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 16px;
+}
+.resumo-decisao .valor {
+  font-size: 13px;
+}
+
+.hint {
+  color: var(--text-faint);
+  font-size: 0.85rem;
+}
+
+.info-box {
+  display: flex;
+  gap: 10px;
+  background: var(--accent-soft-bg);
+  border-radius: var(--card-radius);
+  padding: 12px 14px;
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.info-box i {
+  color: var(--accent-text);
+  font-size: 15px;
+  margin-top: 2px;
+}
+.info-box strong {
+  display: block;
+  color: var(--text-heading);
+  margin-bottom: 4px;
+  font-size: 12.5px;
+}
+.info-box ul {
+  margin: 0;
+  padding-left: 16px;
+}
+.info-box li {
+  margin-bottom: 2px;
+}
+
+@media (max-width: 720px) {
+  .pagina-cabecalho-linha {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .busca {
+    max-width: none;
+  }
 }
 </style>
