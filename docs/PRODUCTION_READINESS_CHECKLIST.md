@@ -117,6 +117,27 @@ para a evidência completa de cada item marcado abaixo.**
       autenticar no Auth mas foi bloqueada em toda leitura/escrita do ERP).
       Procedimento de desligamento documentado em `docs/ENVIRONMENTS.md`.
 
+## FEATURE-SERVICOS-01 (2026-08-17)
+
+- [x] Migrations `20260817140000_p2_servicos_catalogo.sql` e
+      `20260817140100_p2_fix_natureza_gerada.sql` aplicadas em produção
+      (`npx supabase db push --project-ref wtxbodhqyasdlmyoyjur`, executado
+      pelo usuário), confirmadas por `migration list` (remote preenchido) e
+      por contagem de objetos (7 categorias seedadas, 5 funções, coluna
+      `orcamento_itens.natureza` gerada) — ver
+      `docs/testing/TEST_REPORT_SERVICOS01.md`.
+- [ ] Homologação visual real (clique no browser) em produção — **pendente**,
+      mesma limitação de credenciais das etapas anteriores; usuário optou
+      por aprovar com base em migration real + pgTAP (60/60) + build.
+- **Nota operacional:** o deploy do frontend (GitHub Pages, CI on-push-to-main)
+      ocorreu **antes** da migration ser aplicada em produção — o merge do PR
+      já dispara o build/deploy automaticamente, sem esperar confirmação da
+      migration. Houve uma janela curta em que a tela "Serviços" ficaria com
+      erro de carregamento em produção (degradação graciosa, sem quebrar o
+      restante do app). Fechada no mesmo dia. Considerar, em etapas futuras,
+      aplicar a migration de produção **antes** de mesclar o PR que expõe a
+      tela nova no frontend, para evitar essa janela.
+
 ## Observação sobre o estado desta rodada
 
 **Atualizado na ETAPA PROD-01 (2026-08-13).** A maior parte deste checklist
