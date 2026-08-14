@@ -1,8 +1,10 @@
 # TEST REPORT — FEATURE-SERVICOS-01 (Catálogo estruturado de Serviços/Mão de obra)
 
 Data: 2026-08-17
-Ambiente: DEV/QA (`jzjbiejmcaygwycvqggm`, confirmado via `frontend/.env` e `supabase projects list` — distinto do projeto de produção `wtxbodhqyasdlmyoyjur`). **Nenhuma migration foi aplicada em produção nesta etapa.**
-Migrations: `20260817140000_p2_servicos_catalogo.sql` (versão inicial) + `20260817140100_p2_fix_natureza_gerada.sql` (correção same-day, ver seção MODELAGEM).
+Ambiente: homologado em DEV/QA (`jzjbiejmcaygwycvqggm`) e, após aprovação explícita do usuário no mesmo dia, **promovido também para produção** (`wtxbodhqyasdlmyoyjur`).
+Migrations: `20260817140000_p2_servicos_catalogo.sql` (versão inicial) + `20260817140100_p2_fix_natureza_gerada.sql` (correção same-day, ver seção MODELAGEM). Ambas aplicadas nos dois ambientes, na mesma ordem, sem edição entre um e outro.
+
+**Nota sobre a promoção:** o merge do PR que trouxe o frontend desta feature disparou o deploy automático do GitHub Pages (CI on-push-to-main) **antes** da migration ter sido aplicada em produção — uma janela em que a tela "Serviços" ficaria com erro de carregamento em produção (degradação graciosa: a tela mostra "não foi possível carregar", e o restante do app — incluindo Orçamentos — continua funcionando normalmente, pois a ausência da tabela `servicos` é tratada sem exceção não tratada). Identificada e comunicada ao usuário assim que descoberta; usuário autorizou explicitamente a promoção da migration para fechar a janela. Aplicada por ele mesmo via `npx supabase db push --project-ref wtxbodhqyasdlmyoyjur` (mesmo padrão já usado nas etapas anteriores) e confirmada por leitura (`migration list` + contagem de categorias/RPCs/coluna gerada) do lado do Claude Code.
 
 ---
 
@@ -123,12 +125,16 @@ Conscientemente fora de escopo nesta etapa (registradas no pedido original e/ou 
 
 ## Próximas ações priorizadas
 
-**P0 — antes de promover para produção:**
-1. Homologação visual real (clique no browser) por um usuário com credenciais válidas de DEV, cobrindo pelo menos: criar/editar/inativar serviço, adicionar serviço cadastrado + avulso a um orçamento, gerar PDF.
-2. Revisão/aprovação do usuário sobre este relatório antes de preparar a migration para produção (`wtxbodhqyasdlmyoyjur`) — não incluída nesta etapa.
+**P0:**
+1. Homologação visual real (clique no browser), tanto em DEV quanto no app publicado em produção, cobrindo pelo menos: criar/editar/inativar serviço, adicionar serviço cadastrado + avulso a um orçamento, gerar PDF. Continua **pendente** — bloqueada nesta sessão pela mesma limitação de credenciais de DEV já registrada nas etapas anteriores; usuário optou por pular por ora e aprovar a promoção só com base em migration real + 60/60 pgTAP + build + revisão de código.
 
 **P1:**
-3. Decidir se SERV-ORC-004/SERV-GAR-001 precisam de teste E2E dedicado antes da promoção, ou se a cobertura por regressão + leitura de código já registrada é suficiente.
+2. Decidir se SERV-ORC-004/SERV-GAR-001 precisam de teste E2E dedicado, ou se a cobertura por regressão + leitura de código já registrada é suficiente.
+3. Atualizar `docs/PRODUCTION_READINESS_CHECKLIST.md` com esta promoção (feito nesta rodada, ver arquivo).
 
 **P2:**
 4. Itens de MELHORIAS FUTURAS, sem urgência.
+
+## Status final
+
+**PROMOVIDO PARA PRODUÇÃO em 2026-08-17**, com aprovação explícita do usuário. `migration list --project-ref wtxbodhqyasdlmyoyjur` confirma as duas migrations com `remote` preenchido; verificação adicional confirma 7 categorias seedadas, as 5 funções (`rpc_criar_servico`, `rpc_atualizar_servico`, `rpc_ativar_servico`, `rpc_inativar_servico`, `gerar_codigo_servico`) presentes, e `orcamento_itens.natureza` como coluna gerada (versão corrigida, não a que quebrou a regressão na primeira tentativa).
