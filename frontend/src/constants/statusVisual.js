@@ -35,3 +35,14 @@ export const STATUS_COBRANCA = {
   vencida: { label: 'Vencida', cor: '#f87171', severidade: 'danger' },
   cancelada: { label: 'Cancelada', cor: '#9ca3af', severidade: 'contrast' },
 }
+
+// ETAPA UX-SOLICITACOES-01 — mesmas severidades já usadas no mapa local de
+// SolicitacoesList.vue (aberta:info, em_analise:warn, convertida_*:success,
+// cancelada:danger); só centraliza e acrescenta rótulo em PT-BR.
+export const STATUS_SOLICITACAO = {
+  aberta: { label: 'Aberta', cor: '#8b5cf6', severidade: 'info' },
+  em_analise: { label: 'Em análise', cor: '#facc15', severidade: 'warn' },
+  convertida_orcamento: { label: 'Convertida em orçamento', cor: '#4ade80', severidade: 'success' },
+  convertida_os: { label: 'Convertida em OS', cor: '#4ade80', severidade: 'success' },
+  cancelada: { label: 'Cancelada', cor: '#f87171', severidade: 'danger' },
+}
