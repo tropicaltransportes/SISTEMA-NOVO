@@ -1653,7 +1653,143 @@ Cada caso deve manter o mesmo ID no relatório e, quando automatizado, preferenc
 - **Ação:** Criar termo
 - **Resultado esperado:** Validar apenas campos explicitamente configurados; registrar lacunas
 
+---
+
+## SERV-001 — Criar serviço
+- **Criticidade:** Alta
+- **Camada sugerida:** API
+- **Automação:** Sim
+- **Regra relacionada:** BR-044
+- **Pré-condição:** Perfil suporte_administrativo ou administrador_tecnico
+- **Ação:** `rpc_criar_servico` sem informar código
+- **Resultado esperado:** Serviço criado com código gerado automaticamente no padrão `SV-XXX`
+
+## SERV-002 — Código duplicado bloqueado
+- **Criticidade:** Alta
+- **Camada sugerida:** API
+- **Automação:** Sim
+- **Regra relacionada:** BR-044
+- **Pré-condição:** Já existe serviço com código X
+- **Ação:** Criar novo serviço informando o mesmo código X
+- **Resultado esperado:** Bloqueado por UNIQUE (23505)
+
+## SERV-003 — Preço negativo bloqueado
+- **Criticidade:** Crítica
+- **Camada sugerida:** API
+- **Automação:** Sim
+- **Regra relacionada:** BR-044
+- **Pré-condição:** —
+- **Ação:** Criar serviço com `preco_referencia` negativo
+- **Resultado esperado:** Bloqueado pela RPC antes do INSERT
+
+## SERV-004 — Inativar serviço
+- **Criticidade:** Alta
+- **Camada sugerida:** API
+- **Automação:** Sim
+- **Regra relacionada:** BR-044
+- **Pré-condição:** Serviço ativo
+- **Ação:** `rpc_inativar_servico`
+- **Resultado esperado:** `ativo=false` (soft-disable, sem exclusão física)
+
+## SERV-005 — Serviço inativo não aparece em nova seleção
+- **Criticidade:** Alta
+- **Camada sugerida:** API
+- **Automação:** Sim
+- **Regra relacionada:** BR-044
+- **Pré-condição:** Serviço inativado (SERV-004)
+- **Ação:** Consultar catálogo filtrando `ativo=true` (mesmo filtro usado pelo frontend ao popular a seleção do orçamento)
+- **Resultado esperado:** Serviço inativo não aparece
+
+## SERV-006 — Serviço inativo continua visível em histórico
+- **Criticidade:** Alta
+- **Camada sugerida:** API
+- **Automação:** Sim
+- **Regra relacionada:** BR-044
+- **Pré-condição:** Serviço inativado (SERV-004)
+- **Ação:** Consultar catálogo sem filtro de `ativo`
+- **Resultado esperado:** Serviço continua visível (RLS de SELECT não filtra por `ativo`)
+
+## SERV-007 — Executor não altera catálogo
+- **Criticidade:** Crítica
+- **Camada sugerida:** API
+- **Automação:** Sim
+- **Regra relacionada:** BR-044
+- **Pré-condição:** Perfil executor
+- **Ação:** Chamar `rpc_criar_servico`
+- **Resultado esperado:** Bloqueado (P0001)
+
+## SERV-008 — Encarregado/admin conforme permissão consegue alterar
+- **Criticidade:** Alta
+- **Camada sugerida:** API
+- **Automação:** Sim
+- **Regra relacionada:** BR-044
+- **Pré-condição:** Perfil suporte_administrativo (RBAC espelha Peças — encarregado só consulta/seleciona, não cadastra)
+- **Ação:** Chamar `rpc_criar_servico`
+- **Resultado esperado:** Permitido
+
+## SERV-009 — Anon bloqueado
+- **Criticidade:** Crítica
+- **Camada sugerida:** API
+- **Automação:** Sim
+- **Regra relacionada:** BR-044
+- **Pré-condição:** Sem sessão (anon)
+- **Ação:** Chamar `rpc_criar_servico` e fazer SELECT em `servicos`
+- **Resultado esperado:** RPC bloqueada (P0001); SELECT retorna 0 linhas (RLS)
+
+## SERV-010 — Usuário inativo bloqueado
+- **Criticidade:** Crítica
+- **Camada sugerida:** API
+- **Automação:** Sim
+- **Regra relacionada:** BR-044
+- **Pré-condição:** Usuário autenticado com `profiles.ativo=false`
+- **Ação:** Chamar `rpc_criar_servico`
+- **Resultado esperado:** Bloqueado (P0001) — `current_perfil()` já retorna NULL para inativo (ETAPA 3/AUT-004)
+
+## SERV-ORC-001 — Snapshot imutável ao alterar o catálogo
+- **Criticidade:** Crítica
+- **Camada sugerida:** API
+- **Automação:** Sim
+- **Regra relacionada:** BR-044
+- **Pré-condição:** Serviço R$450 adicionado a um item de orçamento
+- **Ação:** Alterar `preco_referencia` do serviço para R$520 via `rpc_atualizar_servico`
+- **Resultado esperado:** Item de orçamento já salvo continua com `valor_unitario`=R$450
+
+## SERV-ORC-002 — Preço editável no item, independente do catálogo
+- **Criticidade:** Alta
+- **Camada sugerida:** API
+- **Automação:** Sim
+- **Regra relacionada:** BR-044
+- **Pré-condição:** Serviço com `preco_referencia`=R$450
+- **Ação:** Lançar o serviço no orçamento com `valor_unitario`=R$480 (divergente da referência)
+- **Resultado esperado:** Item salvo com R$480; `servicos.preco_referencia` permanece R$450
+
+## SERV-ORC-003 — Serviço avulso continua funcionando
+- **Criticidade:** Alta
+- **Camada sugerida:** API
+- **Automação:** Sim
+- **Regra relacionada:** BR-044
+- **Pré-condição:** Orçamento em rascunho
+- **Ação:** Inserir item de mão de obra sem `servico_id` nem `peca_id`
+- **Resultado esperado:** Aceito; `natureza` computa `servico_avulso` automaticamente
+
+## SERV-ORC-004 — Aprovação parcial com peça + serviço cadastrado + avulso
+- **Criticidade:** Alta
+- **Camada sugerida:** Manual/E2E
+- **Automação:** Não
+- **Regra relacionada:** BR-044, BR-042
+- **Pré-condição:** Orçamento com 1 peça, 1 serviço cadastrado, 1 serviço avulso
+- **Ação:** Aprovar peça + serviço cadastrado, rejeitar avulso, converter em OS
+- **Resultado esperado:** OS contém só os 2 itens aprovados — não testado nesta rodada; o mecanismo de aprovação parcial/conversão (`rpc_decidir_item_orcamento`, `rpc_criar_os`) não foi alterado por esta feature (só ganhou uma FK adicional em `orcamento_itens` que ele não lê), então o comportamento já validado nos testes ORC-*/APR-* existentes deve se aplicar sem mudança — mas não houve um caso combinando os 3 tipos de item na mesma OS
+
+## SERV-GAR-001 — Garantia não é afetada por mudança futura no catálogo
+- **Criticidade:** Alta
+- **Camada sugerida:** Manual/E2E
+- **Automação:** Não
+- **Regra relacionada:** BR-044
+- **Pré-condição:** Serviço cadastrado aprovado/executado, depois alterado no catálogo
+- **Ação:** Abrir garantia sobre a OS original
+- **Resultado esperado:** Identificação histórica do item não muda — não testado ponta a ponta nesta rodada; por construção, `os_garantia_itens` referencia `orcamento_item_original_id` (a linha já salva de `orcamento_itens`, com seu snapshot), nunca `servicos` diretamente, então mudar o catálogo depois não tem caminho para alcançar o registro de garantia
 
 ---
 
-**Total de casos:** 176
+**Total de casos:** 191

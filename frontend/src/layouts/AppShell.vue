@@ -23,6 +23,7 @@ const itensMenu = computed(() => {
     { rota: '/orcamentos', label: 'Orçamentos', icone: 'pi pi-file-edit', perfis: null },
     { rota: '/os', label: 'Ordens de Serviço', icone: 'pi pi-wrench', perfis: null },
     { rota: '/estoque/pecas', label: 'Peças', icone: 'pi pi-box', perfis: null },
+    { rota: '/servicos', label: 'Serviços', icone: 'pi pi-cog', perfis: null },
     {
       rota: '/estoque/nf-entrada',
       label: 'Entrada de NF',
@@ -106,6 +107,7 @@ const tituloPagina = computed(() => {
     os: 'Ordens de Serviço',
     'os-detalhe': 'Detalhe da OS',
     pecas: 'Peças',
+    servicos: 'Serviços',
     'nf-entrada': 'Entrada de NF',
     'estoque-ajustes': 'Ajustes de Estoque',
     'vendas-avulsas': 'Venda Avulsa',

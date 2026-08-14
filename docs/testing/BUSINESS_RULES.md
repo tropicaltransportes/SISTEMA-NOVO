@@ -854,3 +854,83 @@ nesta rodada** — é proibido implementar funcionalidade de negócio nova na
 ETAPA 8/RC2; fica registrado aqui como decisão de arquitetura para uma
 rodada futura que precise dela, e como item explícito em
 `docs/PRODUCTION_READINESS_CHECKLIST.md`.
+
+---
+
+## BR-044 — Catálogo de Serviços e snapshot imutável no orçamento
+**Status:** DEFINIDA (FEATURE-SERVICOS-01, DEV/QA — migrations
+`20260817140000_p2_servicos_catalogo.sql` e
+`20260817140100_p2_fix_natureza_gerada.sql`, projeto `jzjbiejmcaygwycvqggm`)
+
+**Regra:** existe um catálogo estruturado de serviços/mão de obra
+(`servicos`, com `codigo` único, `nome`, `categoria_id` opcional
+referenciando `servico_categorias`, `preco_referencia`,
+`tempo_estimado_minutos` opcional, `garantia_dias` — default 90,
+referência de BR-024, sem alterar o literal fixo de 90 dias já usado em
+`rpc_criar_os_garantia` — e `checklist_template_id` opcional reutilizando
+`checklist_templates` já existente). `preco_referencia` é **preço
+comercial de referência**, distinto e independente de `custo_hora_config`
+(custo interno da hora trabalhada, ver BR relacionada à Decisão 2/ETAPA
+6/P1-C) — nenhum dos dois cálculos lê o outro.
+
+`orcamento_itens` ganhou `servico_id` (nullable, FK para `servicos`) e três
+colunas de snapshot (`codigo_servico_snapshot`,
+`tempo_estimado_minutos_snapshot`, `garantia_dias_snapshot`), preenchidas
+no momento do lançamento e nunca recalculadas. `descricao`/`valor_unitario`
+já eram, por construção, o próprio snapshot (copiados no insert, sem join
+vivo) — a extensão só torna explícitos os campos que o catálogo acrescenta.
+**Alterar o preço/dados de um serviço no catálogo depois nunca modifica um
+item de orçamento já salvo, o PDF já emitido, nem a OS originada dele** —
+confirmado por teste (`SERV-ORC-001`) e por leitura de código
+(`OrcamentoPdf.vue`/`rpc_dados_pdf_orcamento` só leem colunas de
+`orcamento_itens`, nunca fazem join vivo com `servicos`/`pecas`).
+
+`orcamento_itens.natureza` é coluna **gerada** (`generated always as`,
+stored), derivada de `peca_id`/`servico_id` — nunca gravável diretamente:
+`peca` quando `peca_id` preenchido, `servico_cadastrado` quando
+`servico_id` preenchido, `servico_avulso` quando nenhum dos dois (mão de
+obra livre, sem vínculo a catálogo — comportamento anterior preservado
+integralmente). Um CHECK (`orcamento_itens_peca_ou_servico_nao_ambos`)
+impede as duas FKs preenchidas ao mesmo tempo. O preço de referência do
+catálogo **não bloqueia** edição do valor lançado no item (encarregado/
+suporte_administrativo/administrador_tecnico continuam podendo digitar um
+valor diferente, como já era possível para peças/mão de obra avulsa).
+
+Escrita no catálogo (`rpc_criar_servico`/`rpc_atualizar_servico`/
+`rpc_ativar_servico`/`rpc_inativar_servico`) é restrita a
+`suporte_administrativo`/`administrador_tecnico` — espelha a RBAC já
+existente de `pecas` (catálogo comercial irmão), não a de
+`checklist_templates`. Inativação é sempre soft-disable
+(`ativo=false`, nunca `DELETE`); um serviço inativo some da lista de opções
+para **novos** lançamentos, mas continua acessível em itens/orçamentos já
+existentes via snapshot. Toda mutação do catálogo é auditada via
+`registrar_auditoria` (mesmo mecanismo único de auditoria do projeto,
+BR-027) — por isso a escrita passa por RPC `SECURITY DEFINER` em vez de
+INSERT/UPDATE direto via RLS (diferente do padrão de `orcamento_itens`),
+já que `registrar_auditoria` está com `REVOKE EXECUTE FROM anon,
+authenticated`.
+
+**Migração de dados históricos:** nenhuma. Itens de mão de obra lançados
+antes desta etapa continuam como `servico_avulso` (a mesma coisa que já
+eram, agora só com rótulo explícito) — não há tentativa de inferir
+correspondência retroativa com o novo catálogo (risco de inferência
+incorreta, deliberadamente evitado).
+
+**Corrigido durante a própria rodada:** a primeira versão da migration
+definia `natureza` como coluna manual com `default 'peca'` + CHECK de
+consistência — isso quebrou fixtures/uso existentes que inserem
+`orcamento_itens` sem `peca_id` e sem informar `natureza` (pgTAP
+`030_orcamento.sql`/`040_liberacao.sql`, e o próprio frontend, que nunca
+enviava essa coluna). Corrigido trocando `natureza` por coluna gerada
+(migration de fix same-day), eliminando a classe de bug inteira em vez de
+só o caso encontrado — nenhum código cliente precisa (nem pode) enviar
+`natureza` manualmente.
+
+**Fora de escopo nesta etapa (registrado como melhoria futura):**
+automação `Serviço → Checklist → OS` (hoje só existe o vínculo no
+catálogo); extensão do mesmo conceito a Adicionais da OS
+(FEATURE-SERVICOS-02); relatórios de serviços mais vendidos, faturamento
+por serviço, tempo estimado × real, margem de mão de obra e retornos em
+garantia por serviço (o modelo de dados já está apto — `tempo_estimado_minutos`
+e os snapshots existem — mas nenhum novo dashboard/indicador foi
+implementado).

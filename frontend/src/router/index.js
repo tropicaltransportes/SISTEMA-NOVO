@@ -59,6 +59,12 @@ const routes = [
         component: () => import('../views/estoque/PecasList.vue'),
       },
       {
+        // FEATURE-SERVICOS-01 — catálogo de serviços/mão de obra.
+        path: 'servicos',
+        name: 'servicos',
+        component: () => import('../views/servicos/ServicosList.vue'),
+      },
+      {
         path: 'estoque/nf-entrada',
         name: 'nf-entrada',
         component: () => import('../views/estoque/NFEntradaList.vue'),
