@@ -31,6 +31,7 @@ const podeAutorizar = () => ['encarregado', 'suporte_administrativo', 'administr
 const orcamentos = ref([])
 const veiculos = ref([])
 const pecas = ref([])
+const servicos = ref([])
 const carregando = ref(true)
 const erro = ref(false)
 const filtro = ref('')
@@ -69,15 +70,20 @@ function numeroLegivel(orc) {
 async function carregar() {
   carregando.value = true
   erro.value = false
-  const [respOrc, respVeiculos, respPecas] = await Promise.all([
+  const [respOrc, respVeiculos, respPecas, respServicos] = await Promise.all([
     supabase
       .from('orcamentos')
       .select(
-        'id, versao, status, valor_total, autorizado_por_nome, comprovante_path, criado_em, solicitacao_id, veiculo:veiculos(id, placa, prefixo, cliente_id), cliente:clientes(id, nome, tipo), orcamento_itens(id, peca_id, descricao, quantidade, valor_unitario, status_aprovacao, meio_aprovacao, autorizado_por_nome, autorizado_em, registrado_por, comprovante_path, observacao), orcamento_acrescimos(id, valor_acrescimo, justificativa, criado_em)'
+        'id, versao, status, valor_total, autorizado_por_nome, comprovante_path, criado_em, solicitacao_id, veiculo:veiculos(id, placa, prefixo, cliente_id), cliente:clientes(id, nome, tipo), orcamento_itens(id, peca_id, servico_id, codigo_servico_snapshot, tempo_estimado_minutos_snapshot, garantia_dias_snapshot, descricao, quantidade, valor_unitario, status_aprovacao, meio_aprovacao, autorizado_por_nome, autorizado_em, registrado_por, comprovante_path, observacao), orcamento_acrescimos(id, valor_acrescimo, justificativa, criado_em)'
       )
       .order('criado_em', { ascending: false }),
     supabase.from('veiculos').select('id, placa, prefixo, cliente_id, cliente:clientes(nome, tipo)').is('deleted_at', null).order('placa'),
     supabase.from('pecas').select('id, sku, descricao').is('deleted_at', null).order('descricao'),
+    // FEATURE-SERVICOS-01 — só serviços ativos aparecem como opção padrão
+    // para novos lançamentos (instrução seção 12); itens já lançados de
+    // serviços hoje inativos continuam no orçamento via snapshot, sem
+    // depender desta lista.
+    supabase.from('servicos').select('id, codigo, nome, preco_referencia, tempo_estimado_minutos, garantia_dias').eq('ativo', true).order('nome'),
   ])
 
   if (respOrc.error) {
@@ -88,6 +94,7 @@ async function carregar() {
   }
   veiculos.value = respVeiculos.data ?? []
   pecas.value = respPecas.data ?? []
+  servicos.value = respServicos.data ?? []
   carregando.value = false
 }
 
@@ -175,7 +182,17 @@ const salvandoItens = ref(false)
 
 function abrirItens(orc) {
   orcamentoAtual.value = orc
-  itens.value = orc.orcamento_itens.map((i) => ({ id: i.id, peca_id: i.peca_id, descricao: i.descricao, quantidade: i.quantidade, valor_unitario: i.valor_unitario }))
+  itens.value = orc.orcamento_itens.map((i) => ({
+    id: i.id,
+    peca_id: i.peca_id,
+    servico_id: i.servico_id,
+    codigo_servico_snapshot: i.codigo_servico_snapshot,
+    tempo_estimado_minutos_snapshot: i.tempo_estimado_minutos_snapshot,
+    garantia_dias_snapshot: i.garantia_dias_snapshot,
+    descricao: i.descricao,
+    quantidade: i.quantidade,
+    valor_unitario: i.valor_unitario,
+  }))
   resetarFormNovoItem()
   dialogoItensAberto.value = true
 }
@@ -185,13 +202,28 @@ function abrirItens(orc) {
 // itens já incluídos (só remoção). O array `itens` (mesmo shape de antes:
 // {id, peca_id, descricao, quantidade, valor_unitario}) e `salvarItens()`
 // continuam idênticos — é só a interação de montar esse array que mudou.
-const formNovoItem = ref({ tipo: 'peca', peca_id: null, descricao: '', quantidade: 1, valor_unitario: 0 })
+//
+// FEATURE-SERVICOS-01 — `tipo` ganha uma terceira opção ('servico_cadastrado'),
+// ao lado das já existentes 'peca'/'mao_obra' (mão de obra avulsa). Ao
+// selecionar um serviço do catálogo, o item grava snapshot imutável
+// (codigo_servico_snapshot/tempo_estimado_minutos_snapshot/garantia_dias_snapshot)
+// no momento do lançamento — mudar o catálogo depois não altera o item já
+// salvo (regra crítica, ver migration 20260817140000_p2_servicos_catalogo.sql).
+// `valor_unitario` continua livremente editável mesmo quando um serviço é
+// selecionado (preço de referência não trava o valor lançado).
+const formNovoItem = ref({ tipo: 'peca', peca_id: null, servico_id: null, descricao: '', quantidade: 1, valor_unitario: 0 })
 function resetarFormNovoItem() {
-  formNovoItem.value = { tipo: 'peca', peca_id: null, descricao: '', quantidade: 1, valor_unitario: 0 }
+  formNovoItem.value = { tipo: 'peca', peca_id: null, servico_id: null, descricao: '', quantidade: 1, valor_unitario: 0 }
 }
 function selecionouPecaNovoItem() {
   const p = pecas.value.find((x) => x.id === formNovoItem.value.peca_id)
   if (p && !formNovoItem.value.descricao) formNovoItem.value.descricao = p.descricao
+}
+function selecionouServicoNovoItem() {
+  const s = servicos.value.find((x) => x.id === formNovoItem.value.servico_id)
+  if (!s) return
+  if (!formNovoItem.value.descricao) formNovoItem.value.descricao = s.nome
+  formNovoItem.value.valor_unitario = s.preco_referencia
 }
 function adicionarItemDoFormulario() {
   const f = formNovoItem.value
@@ -200,9 +232,14 @@ function adicionarItemDoFormulario() {
     toast.add({ severity: 'warn', summary: 'Preencha descrição e quantidade (maior que zero) antes de adicionar', life: 4000 })
     return
   }
+  const servico = f.tipo === 'servico_cadastrado' ? servicos.value.find((x) => x.id === f.servico_id) : null
   itens.value.push({
     id: null,
     peca_id: f.tipo === 'peca' ? f.peca_id || null : null,
+    servico_id: servico?.id ?? null,
+    codigo_servico_snapshot: servico?.codigo ?? null,
+    tempo_estimado_minutos_snapshot: servico?.tempo_estimado_minutos ?? null,
+    garantia_dias_snapshot: servico?.garantia_dias ?? null,
     descricao,
     quantidade: f.quantidade,
     valor_unitario: f.valor_unitario ?? 0,
@@ -214,7 +251,9 @@ function removerItem(index) {
 }
 const totalItensAtual = computed(() => itens.value.reduce((s, i) => s + i.quantidade * i.valor_unitario, 0))
 function tipoItem(item) {
-  return item.peca_id ? 'Peça' : 'Mão de obra'
+  if (item.peca_id) return 'Peça'
+  if (item.servico_id) return 'Serviço'
+  return 'Mão de obra'
 }
 
 async function salvarItens() {
@@ -227,6 +266,10 @@ async function salvarItens() {
   const payload = itens.value.map((i) => ({
     orcamento_id: orcamentoAtual.value.id,
     peca_id: i.peca_id || null,
+    servico_id: i.servico_id || null,
+    codigo_servico_snapshot: i.codigo_servico_snapshot || null,
+    tempo_estimado_minutos_snapshot: i.tempo_estimado_minutos_snapshot || null,
+    garantia_dias_snapshot: i.garantia_dias_snapshot || null,
     descricao: i.descricao,
     quantidade: i.quantidade,
     valor_unitario: i.valor_unitario,
@@ -709,7 +752,11 @@ onMounted(() => {
         <div class="item-add-grid">
           <Select
             v-model="formNovoItem.tipo"
-            :options="[{ label: 'Peça', value: 'peca' }, { label: 'Mão de obra', value: 'mao_obra' }]"
+            :options="[
+              { label: 'Peça', value: 'peca' },
+              { label: 'Serviço cadastrado', value: 'servico_cadastrado' },
+              { label: 'Mão de obra (avulsa)', value: 'mao_obra' },
+            ]"
             optionLabel="label"
             optionValue="value"
             class="add-tipo"
@@ -726,6 +773,20 @@ onMounted(() => {
             class="add-peca"
             @update:modelValue="selecionouPecaNovoItem"
           />
+          <Select
+            v-if="formNovoItem.tipo === 'servico_cadastrado'"
+            v-model="formNovoItem.servico_id"
+            :options="servicos"
+            optionLabel="nome"
+            optionValue="id"
+            filter
+            showClear
+            placeholder="Selecione o serviço"
+            class="add-peca"
+            @update:modelValue="selecionouServicoNovoItem"
+          >
+            <template #option="{ option }">{{ option.codigo }} — {{ option.nome }}</template>
+          </Select>
           <InputText v-model="formNovoItem.descricao" placeholder="Descrição" class="add-descricao" />
           <InputNumber v-model="formNovoItem.quantidade" placeholder="Qtde" :minFractionDigits="0" :maxFractionDigits="3" class="add-qtd" />
           <InputNumber v-model="formNovoItem.valor_unitario" placeholder="Valor unit." mode="currency" currency="BRL" locale="pt-BR" class="add-valor" />
@@ -743,7 +804,7 @@ onMounted(() => {
           <tbody>
             <tr v-for="(item, index) in itens" :key="index">
               <td>{{ item.descricao }}</td>
-              <td><span class="badge-tipo-item" :class="item.peca_id ? 'badge-peca' : 'badge-mao-obra'">{{ tipoItem(item) }}</span></td>
+              <td><span class="badge-tipo-item" :class="item.peca_id ? 'badge-peca' : item.servico_id ? 'badge-servico' : 'badge-mao-obra'">{{ tipoItem(item) }}</span></td>
               <td>{{ item.quantidade }}</td>
               <td>{{ formatarMoeda(item.valor_unitario) }}</td>
               <td>{{ formatarMoeda(item.quantidade * item.valor_unitario) }}</td>
@@ -1120,6 +1181,10 @@ onMounted(() => {
 .badge-peca {
   background: var(--info-bg);
   color: var(--info);
+}
+.badge-servico {
+  background: rgba(74, 222, 128, 0.16);
+  color: var(--status-aprovado);
 }
 .badge-mao-obra {
   background: var(--accent-soft-bg);
