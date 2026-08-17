@@ -1,21 +1,39 @@
 :root {
-  /* fundo */
-  --bg-page: #262b36;
+  /* ETAPA BRAND-01 — paleta oficial extraída de
+     "MANUAL DE MARCA - TROPICAL TRANSPORTES.pdf" (página 25, "2. Paleta de
+     Cores RGB") e confirmada por amostragem de pixel nos PNGs oficiais em
+     frontend/src/assets/brand/. Nomes conforme o manual (não inventados). */
+  --brand-verde-escuro: #06772b; /* "Verde escuro" — cor dominante do logotipo */
+  --brand-verde-claro: #00c038; /* "Verde claro" — acento/detalhe do logotipo */
+  --brand-branco-gelo: #edfff2; /* "Branco gelo" — tom mais claro, usado pelo próprio logotipo em fundo escuro */
+  --brand-azul-miragem: #1c2a3a; /* "Azul miragem" — fundo escuro oficial (ver manual, símbolo/logotipo aplicados sobre este tom) */
+  --brand-verde-banana: #c7d291; /* "Verde banana" — terciária, uso esparso (ex.: só AA-large, ver README de marca) */
+
+  /* fundo — Azul Miragem é o próprio fundo escuro oficial da marca (manual,
+     "6.5 Ícones"): symbol/logotipo já são aplicados sobre este tom lá.
+     Preserva o mesmo padrão visual "grafite/preto azulado" já aprovado
+     (BRAND-01 item 13) — troca só o matiz, não a estrutura. */
+  --bg-page: var(--brand-azul-miragem);
   --bg-page-gradient:
-    radial-gradient(ellipse 90% 60% at 30% 0%, rgba(140, 148, 165, 0.1) 0%, rgba(38, 43, 54, 0) 55%),
-    radial-gradient(ellipse 70% 50% at 80% 95%, rgba(110, 118, 135, 0.08) 0%, rgba(38, 43, 54, 0) 55%);
+    radial-gradient(ellipse 90% 60% at 30% 0%, rgba(140, 148, 165, 0.1) 0%, rgba(28, 42, 58, 0) 55%),
+    radial-gradient(ellipse 70% 50% at 80% 95%, rgba(110, 118, 135, 0.08) 0%, rgba(28, 42, 58, 0) 55%);
   --panel-shell-bg: rgba(255, 255, 255, 0.055);
   --panel-card-bg: rgba(255, 255, 255, 0.055);
   --search-bg: rgba(255, 255, 255, 0.05);
 
-  /* marca */
-  --accent-1: #8b5cf6;
-  --accent-2: #6d28d9;
+  /* marca — accent-1/2 passam a ser a identidade Tropical. Verde claro é o
+     acento em modo escuro (5.96:1 sobre --brand-azul-miragem, 5.80:1 sobre
+     o antigo --bg-page — passa AA); verde escuro NÃO tem contraste
+     suficiente como texto/ícone sobre fundo escuro (2.55:1, reprovado —
+     por isso permanece só como ponta do gradiente/fill de botão, nunca como
+     cor de texto solto em cima do fundo escuro). Ver frontend/src/assets/brand/README.md. */
+  --accent-1: var(--brand-verde-claro);
+  --accent-2: var(--brand-verde-escuro);
   --accent-gradient: linear-gradient(135deg, var(--accent-1), var(--accent-2));
-  --accent-soft-bg: rgba(139, 92, 246, 0.18);
-  --accent-soft-bg-strong: rgba(139, 92, 246, 0.22);
-  --accent-soft-bg-pill: rgba(139, 92, 246, 0.28);
-  --accent-text: #a78bfa;
+  --accent-soft-bg: rgba(0, 192, 56, 0.18);
+  --accent-soft-bg-strong: rgba(0, 192, 56, 0.22);
+  --accent-soft-bg-pill: rgba(0, 192, 56, 0.28);
+  --accent-text: var(--brand-verde-claro);
 
   /* texto */
   --text-heading: #f5f3ff;
@@ -41,6 +59,13 @@
   --warning-bg: rgba(250, 204, 21, 0.15);
   --info: #38bdf8;
   --info-bg: rgba(56, 189, 248, 0.15);
+  /* ETAPA BRAND-01 — violeta permanece como hue SEMÂNTICO independente
+     ("estado especial/informativo", ex.: aberta/parcial/garantia — nunca
+     mais coincide com a marca, que agora é verde), não como resquício do
+     antigo accent. Mantido de propósito (item 12 da instrução: revisar,
+     não substituir cegamente) — trocar por verde aqui confundiria "estado"
+     com "identidade", e o violeta já é uma 5ª cor bem distinta de
+     verde/azul/âmbar/vermelho na paleta de status existente. */
   --neutral-accent: #a78bfa;
   --neutral-accent-bg: rgba(139, 92, 246, 0.18);
 
@@ -48,7 +73,7 @@
   --surface: var(--panel-card-bg);
   --surface-hover: rgba(255, 255, 255, 0.09);
   --primary: var(--accent-1);
-  --primary-hover: #7c4de8;
+  --primary-hover: var(--brand-verde-escuro);
 
   /* cores de status — única fonte de verdade visual (ver
      frontend/src/constants/statusVisual.js para os mesmos valores em JS,
@@ -57,16 +82,16 @@
   --status-enviado: #38bdf8;
   --status-aguardando: #facc15;
   --status-aprovado: #4ade80;
-  --status-parcial: #a78bfa;
+  --status-parcial: var(--neutral-accent);
   --status-rejeitado: #f87171;
-  --status-aberta: #8b5cf6;
+  --status-aberta: var(--neutral-accent);
   --status-em-execucao: #38bdf8;
   --status-em-diagnostico: #38bdf8;
   --status-aguardando-teste: #fb923c;
   --status-concluida: #4ade80;
   --status-liberada: #16a34a;
   --status-cancelada: #f87171;
-  --status-garantia: #a78bfa;
+  --status-garantia: var(--neutral-accent);
 
   /* efeitos */
   --shell-radius: 26px;
@@ -89,10 +114,10 @@ body {
 }
 
 a {
-  color: #c4b5fd;
+  color: var(--accent-text);
 }
 a:hover {
-  color: #ddd6fe;
+  color: var(--brand-branco-gelo);
 }
 
 ::-webkit-scrollbar {

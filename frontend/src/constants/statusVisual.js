@@ -4,9 +4,14 @@
 // dos dois lados sem o outro quebra a consistência visual entre telas.
 // Não substitui os mapas locais já existentes em OrdensServicoList.vue /
 // OrcamentosList.vue / CobrancasList.vue (fora do escopo desta etapa).
+//
+// ETAPA BRAND-01 — '#8b5cf6' (antigo --accent-1/marca) foi trocado por
+// '#a78bfa' para espelhar --status-aberta: var(--neutral-accent) em
+// style.css: violeta continua existindo como hue semântico "especial",
+// só que agora desacoplado da marca (que passou a ser verde Tropical).
 
 export const STATUS_OS = {
-  aberta: { label: 'Aberta', cor: '#8b5cf6', severidade: 'info' },
+  aberta: { label: 'Aberta', cor: '#a78bfa', severidade: 'info' },
   em_diagnostico: { label: 'Em diagnóstico', cor: '#38bdf8', severidade: 'warn' },
   aguardando_aprovacao: { label: 'Aguard. aprovação', cor: '#facc15', severidade: 'warn' },
   em_execucao: { label: 'Em execução', cor: '#38bdf8', severidade: 'warn' },
@@ -44,7 +49,7 @@ export const STATUS_COBRANCA = {
 // SolicitacoesList.vue (aberta:info, em_analise:warn, convertida_*:success,
 // cancelada:danger); só centraliza e acrescenta rótulo em PT-BR.
 export const STATUS_SOLICITACAO = {
-  aberta: { label: 'Aberta', cor: '#8b5cf6', severidade: 'info' },
+  aberta: { label: 'Aberta', cor: '#a78bfa', severidade: 'info' },
   em_analise: { label: 'Em análise', cor: '#facc15', severidade: 'warn' },
   convertida_orcamento: { label: 'Convertida em orçamento', cor: '#4ade80', severidade: 'success' },
   convertida_os: { label: 'Convertida em OS', cor: '#4ade80', severidade: 'success' },
