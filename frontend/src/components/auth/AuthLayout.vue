@@ -1,4 +1,6 @@
 <script setup>
+import BrandLogo from '../brand/BrandLogo.vue'
+
 defineProps({
   tagline: {
     type: String,
@@ -11,9 +13,12 @@ defineProps({
   <div class="auth-bg">
     <div class="auth-frame">
       <aside class="auth-brand">
+        <!-- ETAPA BRAND-01 — logo horizontal oficial (fundo escuro). Já
+             traz "Tropical TRANSPORTES" na própria imagem, por isso não
+             repete o nome como texto solto ao lado (item 6/18 da
+             instrução: nada de monograma/marca fictícia desenhados em CSS). -->
         <div class="brand-mark">
-          <div class="brand-logo"><span></span></div>
-          <div class="brand-name">Tropical Transportes</div>
+          <BrandLogo variant="horizontal" surface="dark" :size="34" />
         </div>
 
         <div class="brand-copy">
@@ -71,7 +76,7 @@ defineProps({
   padding: 44px 40px;
   background:
     radial-gradient(ellipse 120% 80% at 20% 0%, var(--accent-soft-bg) 0%, transparent 55%),
-    radial-gradient(ellipse 90% 70% at 90% 100%, rgba(109, 40, 217, 0.25) 0%, transparent 60%);
+    radial-gradient(ellipse 90% 70% at 90% 100%, rgba(6, 119, 43, 0.3) 0%, transparent 60%);
   border-right: 1px solid var(--border-panel);
   overflow: hidden;
 }
@@ -89,31 +94,6 @@ defineProps({
   position: relative;
   display: flex;
   align-items: center;
-  gap: 12px;
-}
-.brand-logo {
-  width: 40px;
-  height: 40px;
-  border-radius: 11px;
-  background: var(--accent-gradient);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  box-shadow: 0 8px 20px rgba(139, 92, 246, 0.35);
-}
-.brand-logo span {
-  width: 13px;
-  height: 13px;
-  border-radius: 4px;
-  background: #fff;
-  display: block;
-}
-.brand-name {
-  color: var(--text-heading);
-  font-weight: 700;
-  font-size: 14.5px;
-  letter-spacing: -0.1px;
 }
 
 .brand-copy {

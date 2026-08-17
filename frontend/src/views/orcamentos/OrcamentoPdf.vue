@@ -17,6 +17,7 @@ import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import { STATUS_ORCAMENTO } from '../../constants/statusVisual'
+import BrandLogo from '../../components/brand/BrandLogo.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -69,17 +70,6 @@ const subtotalMaoObra = computed(() => itensMaoObra.value.reduce((s, i) => s + N
 const cancelado = computed(() => d.value?.orcamento?.status === 'cancelado')
 const mostrarTagStatus = computed(() => d.value && !cancelado.value && d.value.orcamento.status !== 'rascunho')
 
-// item 4/35 — mecanismo de logo: import.meta.glob estático não falha no
-// build se o arquivo ainda não existir (retorna objeto vazio); assim que o
-// dono do projeto adicionar o arquivo real neste caminho, ele passa a
-// aparecer automaticamente, sem outra alteração de código.
-// ARQUIVO ESPERADO   = src/assets/logo-tropical.(png|svg|webp)
-// DIMENSÃO RECOMENDADA = altura ~96px (proporção livre, largura ajusta sozinha)
-// FORMATO            = PNG transparente ou SVG (preferencial)
-// LOCAL DE SUBSTITUIÇÃO = frontend/src/assets/ (ver este comentário)
-const logoModules = import.meta.glob('../../assets/logo-tropical.*', { eager: true, import: 'default' })
-const logoUrl = computed(() => Object.values(logoModules)[0] ?? null)
-
 // Quebra "Tropical Transportes — Oficina Mecânica" (string real, vinda de
 // d.empresa.nome) em 2 linhas só para hierarquia visual do letterhead —
 // não altera nem inventa o texto, só onde a linha quebra.
@@ -107,12 +97,13 @@ const linhasEmpresa = computed(() => {
       <div v-if="cancelado" class="faixa-cancelado">ORÇAMENTO CANCELADO</div>
 
       <header class="doc-cabecalho">
+        <!-- ETAPA BRAND-01 — logo horizontal oficial (fundo claro). Já traz
+             "Tropical TRANSPORTES" na própria imagem, então não repete o
+             nome como texto ao lado (item 8 da instrução) — só o setor,
+             tipograficamente separado da marca. -->
         <div class="doc-marca">
-          <img v-if="logoUrl" :src="logoUrl" alt="Tropical Transportes" class="doc-logo-img" />
-          <div class="doc-marca-texto">
-            <strong>{{ linhasEmpresa[0] }}</strong>
-            <span v-if="linhasEmpresa[1]">{{ linhasEmpresa[1] }}</span>
-          </div>
+          <BrandLogo variant="horizontal" surface="light" :size="40" />
+          <span class="doc-marca-setor">Oficina Mecânica</span>
         </div>
         <div class="doc-numero">
           <span class="doc-titulo-tipo">Orçamento</span>
@@ -291,7 +282,7 @@ const linhasEmpresa = computed(() => {
   justify-content: space-between;
   align-items: flex-start;
   padding-bottom: 18px;
-  border-bottom: 2px solid #ede9fe;
+  border-bottom: 2px solid var(--brand-branco-gelo);
   margin-bottom: 18px;
 }
 .doc-marca {
@@ -299,24 +290,11 @@ const linhasEmpresa = computed(() => {
   align-items: center;
   gap: 12px;
 }
-.doc-logo-img {
-  height: 44px;
-  width: auto;
-  max-width: 160px;
-  object-fit: contain;
-  flex-shrink: 0;
-}
-.doc-marca-texto {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.3;
-}
-.doc-marca-texto strong {
-  font-size: 16px;
-  color: #1f2430;
-}
-.doc-marca-texto span {
+.doc-marca-setor {
   font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
   color: #6b7280;
 }
 .doc-numero {
@@ -335,7 +313,7 @@ const linhasEmpresa = computed(() => {
   font-family: var(--font-mono);
   font-weight: 700;
   font-size: 16px;
-  color: #6d28d9;
+  color: var(--brand-verde-escuro);
   letter-spacing: 0.2px;
   margin-top: 2px;
 }
@@ -370,7 +348,7 @@ const linhasEmpresa = computed(() => {
   font-weight: 700;
   letter-spacing: 0.5px;
   text-transform: uppercase;
-  color: #7c3aed;
+  color: var(--brand-verde-escuro);
   margin-bottom: 8px;
   break-after: avoid;
   page-break-after: avoid;
@@ -406,8 +384,8 @@ const linhasEmpresa = computed(() => {
   font-size: 0.85rem;
 }
 .tabela-relatorio th {
-  background: #f5f3ff;
-  color: #6d28d9;
+  background: var(--brand-branco-gelo);
+  color: var(--brand-verde-escuro);
   font-weight: 600;
   font-size: 0.72rem;
   text-transform: uppercase;
@@ -429,7 +407,7 @@ const linhasEmpresa = computed(() => {
 }
 .linha-subtotal td {
   border-bottom: none;
-  border-top: 1.5px solid #ddd6fe;
+  border-top: 1.5px solid rgba(6, 119, 43, 0.25);
   font-weight: 700;
   color: #1f2430;
   padding-top: 0.6rem;
@@ -476,7 +454,7 @@ const linhasEmpresa = computed(() => {
   color: #1f2430;
 }
 .doc-resumo-total span:last-child {
-  color: #6d28d9;
+  color: var(--brand-verde-escuro);
 }
 
 .hint {
@@ -497,7 +475,7 @@ const linhasEmpresa = computed(() => {
 }
 
 .doc-rodape {
-  border-top: 1px solid #ede9fe;
+  border-top: 1px solid var(--brand-branco-gelo);
   padding-top: 16px;
   break-inside: avoid;
   page-break-inside: avoid;

@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import Button from 'primevue/button'
+import BrandLogo from '../components/brand/BrandLogo.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -131,8 +132,17 @@ async function sair() {
     <div class="shell">
       <aside class="sidebar">
         <div class="marca">
-          <div class="marca-logo"><span></span></div>
-          <div class="marca-texto">Tropical Transportes<br /><span class="marca-sub">ERP</span></div>
+          <!-- ETAPA BRAND-01 — logo horizontal oficial expandida (já traz
+               "Tropical TRANSPORTES" na própria imagem, por isso só
+               "ERP Oficina" é adicionado como legenda, tipograficamente
+               separada — item 5/7/18 da instrução: nada de monograma
+               desenhado em CSS). -->
+          <div class="marca-expandida">
+            <BrandLogo variant="horizontal" surface="dark" :size="22" />
+            <span class="marca-sub">ERP Oficina</span>
+          </div>
+          <!-- sidebar recolhida (item 7): só o símbolo oficial -->
+          <BrandLogo variant="symbol" surface="dark" :size="30" class="marca-simbolo" />
         </div>
 
         <nav>
@@ -218,37 +228,23 @@ async function sair() {
 .marca {
   display: flex;
   align-items: center;
-  gap: 10px;
   padding: 6px 10px 22px;
 }
-.marca-logo {
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
-  background: var(--accent-gradient);
+.marca-expandida {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
 }
-.marca-logo span {
-  width: 11px;
-  height: 11px;
-  border-radius: 3px;
-  background: #fff;
-  display: block;
-}
-.marca-texto {
-  color: var(--text-heading);
-  font-weight: 700;
-  font-size: 14px;
-  letter-spacing: -0.2px;
-  line-height: 1.2;
+.marca-simbolo {
+  display: none;
 }
 .marca-sub {
   color: var(--accent-text);
   font-weight: 600;
-  font-size: 11.5px;
+  font-size: 11px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
 }
 
 nav {
@@ -363,10 +359,13 @@ nav {
     width: 76px;
     padding: 18px 10px;
   }
-  .marca-texto,
+  .marca-expandida,
   .item-menu span,
   .sidebar-footer-texto {
     display: none;
+  }
+  .marca-simbolo {
+    display: block;
   }
   .marca {
     justify-content: center;
@@ -391,6 +390,44 @@ nav {
   .topbar {
     flex-wrap: wrap;
     gap: 10px;
+  }
+}
+
+/* Achado incidental (BRAND-01, verificação de impressão — item 21): rotas
+   de documento (orcamento-pdf, os-relatorio-encerramento/garantia,
+   veiculo-historico) são filhas do AppShell, então sidebar/topbar
+   apareciam na impressão real — cada documento só reseta o próprio
+   .documento-papel, nunca escondia o chrome do ERP ao redor. Nenhum desses
+   4 componentes tem como alcançar estes seletores (são do AppShell, fora
+   do escopo do <style scoped> deles). Corrigido aqui, uma vez, para todos. */
+@media print {
+  .page-bg {
+    padding: 0;
+    background: none;
+    display: block;
+    min-height: 0;
+  }
+  .shell {
+    display: block;
+    height: auto;
+    max-width: none;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    background: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .sidebar,
+  .topbar {
+    display: none !important;
+  }
+  .main-col {
+    display: block;
+  }
+  .pagina {
+    padding: 0;
+    overflow: visible;
   }
 }
 </style>
