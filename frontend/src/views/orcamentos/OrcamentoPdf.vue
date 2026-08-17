@@ -53,6 +53,35 @@ async function carregar() {
 }
 carregar()
 
+// BUG-PDF-PRINT-01 — CAUSA REAL: `@click="window.print()"` direto no
+// template nunca funcionava no build de produção. O compilador do Vue
+// (`<script setup>`, template inline — modo usado só em produção; em dev
+// o template roda sem inline, por isso o bug não aparecia ali) só deixa
+// passar identificadores de uma whitelist fixa de globais (Math, Date,
+// JSON, console, Error, etc. — NÃO inclui `window`/`document`/`location`).
+// Qualquer identificador fora dessa lista e fora dos bindings do
+// <script setup> é reescrito para `_ctx.<identificador>` — então
+// `window.print()` virava `_ctx.window.print()` em produção, e
+// `_ctx.window` é `undefined` (o componente nunca expôs isso). Confirmado
+// lendo o bundle minificado real (`dist/assets/OrcamentoPdf-*.js`):
+// `onClick:d[1]||=e=>u.window.print()` — `u` é o proxy `_ctx`.
+// Correção: chamar via função declarada aqui no script (closure JS normal,
+// nunca passa pelo compilador de template) — sem await antes, para não
+// perder o gesto do usuário (item 3 da instrução).
+function imprimir() {
+  if (!d.value) return
+  try {
+    window.print()
+  } catch (e) {
+    console.error('Falha ao abrir a impressão do orçamento:', e)
+    toast.add({
+      severity: 'error',
+      summary: 'Não foi possível abrir a impressão. Tente novamente.',
+      life: 6000,
+    })
+  }
+}
+
 // item 8/9/10/11 — PEÇAS x MÃO DE OBRA a partir do discriminador estrutural
 // `natureza` (coluna gerada em orcamento_itens: 'peca' | 'servico_cadastrado'
 // | 'servico_avulso' — FEATURE-SERVICOS-01), nunca por análise textual da
@@ -85,7 +114,15 @@ const linhasEmpresa = computed(() => {
   <div class="pagina-relatorio">
     <div class="acoes-topo no-print">
       <Button icon="pi pi-arrow-left" text @click="router.push('/orcamentos')" />
-      <Button label="Imprimir / PDF" icon="pi pi-print" size="small" class="btn-gradiente" @click="window.print()" />
+      <Button
+        label="Imprimir / PDF"
+        icon="pi pi-print"
+        size="small"
+        class="btn-gradiente"
+        :disabled="carregando || erro || !d"
+        :loading="carregando"
+        @click="imprimir"
+      />
     </div>
 
     <div v-if="carregando" class="documento-papel documento-estado">Carregando...</div>

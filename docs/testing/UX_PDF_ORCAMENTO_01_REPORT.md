@@ -251,3 +251,133 @@ pgTAP verdes, build limpo, 10/10 cenários validados visualmente com dados
 reais. **Não promovido a produção nesta rodada** — aguardando decisão do
 dono do projeto para abrir PR/merge/deploy, dado o histórico recente de
 merge automático inadvertido (FEATURE-ORCAMENTO-EXCLUSAO-01).
+
+---
+
+## BUG-PDF-PRINT-01 — Botão "Imprimir / PDF" não funcionava
+
+**BUG IMPRESSÃO** = clicar em "Imprimir / PDF" não fazia absolutamente
+nada — nenhum diálogo de impressão abria, nenhum erro visível na tela.
+Confirmado em produção (build minificado); no servidor de desenvolvimento
+(`npm run dev`) o botão funcionava normalmente, o que mascarava o defeito
+durante as etapas anteriores.
+
+**CAUSA** = `@click="window.print()"` era um binding **inline no
+template**. O compilador do Vue (`<script setup>`, modo *inline
+template* — usado só no build de produção; o servidor de desenvolvimento
+compila o template separadamente, sem essa otimização, por causa do HMR)
+só deixa passar direto identificadores de uma whitelist fixa de globais
+(`Infinity,undefined,NaN,isFinite,isNaN,parseFloat,parseInt,
+decodeURIComponent,encodeURIComponent,Math,Number,Date,Array,Object,
+Boolean,String,RegExp,Map,Set,JSON,Intl,BigInt,console,Error`) —
+`window` **não está nela**. Qualquer identificador fora da whitelist e
+fora dos bindings do `<script setup>` é reescrito para `_ctx.<nome>`, e
+como o componente nunca expôs `window`, `_ctx.window` é `undefined` — a
+chamada falhava (`Cannot read properties of undefined`) silenciosamente
+sob o gesto de clique, sem deixar rastro visível para o usuário. Causa
+confirmada por **inspeção direta do bundle minificado real**
+(`dist/assets/OrcamentoPdf-*.js`), não por suposição:
+
+```
+// ANTES (bug) — u é o proxy _ctx:
+onClick:d[1]||=e=>u.window.print()
+
+// DEPOIS (corrigido) — window puro, dentro de uma função do script:
+function je(){if(U.value)try{window.print()}catch(e){console...
+```
+
+**ARQUIVO CORRIGIDO** = `frontend/src/views/orcamentos/OrcamentoPdf.vue`
+(script e template). Nenhum outro arquivo tinha esse padrão (`grep` por
+`window.print()`/`window.location`/`window.` inline em template não
+encontrou ocorrência equivalente em outro componente).
+
+**HANDLER** = novo método `imprimir()` declarado no `<script setup>`
+(closure JS normal — nunca passa pelo compilador de expressão de
+template, então `window` resolve pelo escopo do JavaScript de verdade,
+não pela whitelist do Vue):
+
+```js
+function imprimir() {
+  if (!d.value) return
+  try {
+    window.print()
+  } catch (e) {
+    console.error('Falha ao abrir a impressão do orçamento:', e)
+    toast.add({ severity: 'error', summary: 'Não foi possível abrir a impressão. Tente novamente.', life: 6000 })
+  }
+}
+```
+
+Botão trocado de `@click="window.print()"` para `@click="imprimir"`, com
+`:disabled="carregando || erro || !d"` e `:loading="carregando"` — não é
+mais possível clicar antes dos dados carregarem (item 4 da instrução).
+Erro não fica mais silencioso: `console.error` + toast visível (item 5) —
+sem `catch` vazio.
+
+**WINDOW.PRINT** = chamado de forma **síncrona**, direto no corpo da
+função disparada pelo clique — sem `await` antes (item 3 da instrução).
+O único `await` do componente (`carregar()`, que busca os dados da RPC)
+já roda antes do botão ficar habilitado, então o clique em si nunca
+espera nada — preserva o gesto do usuário exigido pelos navegadores para
+abrir o diálogo nativo.
+
+**CSS PRINT** = revisado, nenhuma mudança necessária no `@media print` do
+próprio documento (já corrigido na etapa UX-PDF-ORCAMENTO-01: `@page`,
+`.no-print`, `break-inside/page-break-inside: avoid`). Confirmado de novo
+no CSSOM do build de produção: `@page { size: a4; margin: 14mm 12mm; }` e
+`.no-print[data-v-…] { display: none !important; }` presentes e corretos.
+Também confirmado (herdado da etapa BRAND-01, não desta correção) que
+`.sidebar`/`.topbar` do `AppShell.vue` continuam escondidos na impressão
+(`display: none !important` dentro de `@media print`).
+
+**A4** = `@page { size: A4; margin: 14mm 12mm; }` confirmado presente e
+ativo no CSSOM do build de produção testado.
+
+**MULTIPÁGINA** = inalterado nesta correção — já validado na etapa
+UX-PDF-ORCAMENTO-01 (cenário de 30 itens, `break-inside`/
+`page-break-inside: avoid` em linhas de tabela, blocos e resumo
+financeiro).
+
+**LOGO** = inalterada nesta correção — `BrandLogo` (import estático do
+Vite, processado/hasheado no build, nunca path absoluto quebrável — ver
+etapa BRAND-01) continua carregando normalmente; confirmado que o clique
+corrigido não interfere na logo nem depende dela.
+
+**BUILD** = `npm run build` (modo produção padrão, apontando para o
+ambiente configurado em `.env.production`) — limpo, 0 erros. Verificação
+da causa e da correção feita com uma segunda build adicional, em
+`--mode development` (usa `.env`, que aponta para DEV/QA) só para poder
+autenticar com credencial de teste e clicar de verdade **no mesmo modo de
+compilação de produção** (minificado, template inline) sem usar
+credenciais reais de produção — a variável testada foi o modo de
+compilação, não o ambiente de dados.
+
+**TESTE BROWSER** = build de produção (minificado) servido localmente via
+`vite preview`, login real (DEV/QA), navegação até o PDF, clique real no
+botão:
+- Antes da correção: bundle minificado mostrava `u.window.print()` — a
+  causa, confirmada por leitura do arquivo, não pelo clique em si.
+- Depois da correção: bundle mostra `window.print()` puro dentro da
+  função `imprimir`; clique real não gera nenhum erro novo no console
+  (`read_console_messages` antes/depois idêntico, sem `TypeError`); botão
+  reflete corretamente o estado carregado (`disabled: false` só depois de
+  `carregando` terminar). Testado em Chromium (motor do Browser pane usado
+  nesta sessão) — Edge/Chromium não foi testado à parte por serem o mesmo
+  motor de renderização; sem diferença de comportamento esperada para
+  `window.print()`.
+
+**REGRESSÃO** = confirmada sem alteração de dado/cálculo após a correção:
+orçamento com peças+mão de obra (`f1000000-…-0003`) continua mostrando
+Valor total R$ 950,00, idêntico a antes; versão histórica
+(`f1000000-…-0009`) continua mostrando "Versão 1" corretamente; botão
+"Voltar" (`router.push('/orcamentos')`, binding que já era uma função do
+`<script setup>`, nunca teve esse bug) inalterado.
+
+### Causa raiz, em uma frase
+
+Chamar uma API do navegador (`window`, `document`, `location`, etc.)
+direto numa expressão inline do `<template>` de um componente
+`<script setup>` é seguro em desenvolvimento mas pode quebrar
+silenciosamente em produção — a correção geral é sempre envolver a
+chamada numa função declarada no `<script setup>` e usar essa função como
+handler, nunca a API do navegador diretamente no template.
