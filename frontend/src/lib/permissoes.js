@@ -143,6 +143,18 @@ export const PODE_REGISTRAR_TERMO_CIENCIA = [PERFIS.ENCARREGADO, PERFIS.SUPORTE_
 // porque a policy de 'cobrancas' já bloqueia SELECT para executor).
 export const PODE_VER_RELATORIOS = [PERFIS.EXECUTOR, PERFIS.ENCARREGADO, PERFIS.SUPORTE_ADMINISTRATIVO, PERFIS.DIRETORIA, PERFIS.ADMINISTRADOR_TECNICO]
 
+// FEATURE-ORCAMENTO-EXCLUSAO-01 (BR-045/046/047) — exclusão lógica de
+// rascunho e cancelamento formal pós-rascunho, mesma autoridade de
+// PODE_GERIR_ORCAMENTO (quem já pode enviar/versionar/descontar também
+// exclui/cancela) — rpc_excluir_orcamento_rascunho / rpc_cancelar_orcamento.
+export const PODE_EXCLUIR_ORCAMENTO_RASCUNHO = [PERFIS.ENCARREGADO, PERFIS.ADMINISTRADOR_TECNICO]
+export const PODE_CANCELAR_ORCAMENTO = [PERFIS.ENCARREGADO, PERFIS.ADMINISTRADOR_TECNICO]
+// Restauração de orçamento excluído — rpc_restaurar_orcamento_excluido. Mais
+// restrito que a própria exclusão por decisão deliberada: reverter uma ação
+// destrutiva já auditada exige autoridade máxima, não a mesma autoridade
+// que a praticou.
+export const PODE_RESTAURAR_ORCAMENTO = [PERFIS.ADMINISTRADOR_TECNICO]
+
 export function temPerfil(perfilAtual, listaPermitida) {
   return !!perfilAtual && listaPermitida.includes(perfilAtual)
 }

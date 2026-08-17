@@ -26,6 +26,10 @@ export const STATUS_ORCAMENTO = {
   parcialmente_aprovado: { label: 'Parcialmente aprovado', cor: '#a78bfa', severidade: 'warn' },
   rejeitado: { label: 'Rejeitado', cor: '#f87171', severidade: 'danger' },
   substituido: { label: 'Substituído', cor: '#9ca3af', severidade: 'contrast' },
+  // FEATURE-ORCAMENTO-EXCLUSAO-01 (BR-046) — cancelamento formal, definitivo,
+  // distinto de 'rejeitado' (decisão do cliente sobre o conteúdo) e de
+  // 'substituido' (superado por nova versão).
+  cancelado: { label: 'Cancelado', cor: '#f87171', severidade: 'danger' },
 }
 
 export const STATUS_COBRANCA = {

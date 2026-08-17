@@ -1,0 +1,11 @@
+-- FEATURE-ORCAMENTO-EXCLUSAO-01 (parte 2/3) — novo valor de enum para
+-- cancelamento formal de orçamento pós-rascunho (BR-046).
+--
+-- Isolado na própria migration, sem nenhum outro comando: ALTER TYPE ...
+-- ADD VALUE não pode ser usado na MESMA transação em que o valor novo é
+-- lido (mesma restrição já contornada em
+-- 20260813100000_p1b_status_orcamento_enum.sql, que adicionou
+-- 'parcialmente_aprovado' isoladamente). A próxima migration desta etapa
+-- (20260818150200), que já usa 'cancelado' dentro de rpc_cancelar_orcamento,
+-- só roda depois que esta commitou.
+alter type status_orcamento add value if not exists 'cancelado';

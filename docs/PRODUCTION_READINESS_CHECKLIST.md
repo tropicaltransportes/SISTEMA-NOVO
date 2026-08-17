@@ -138,6 +138,26 @@ para a evidência completa de cada item marcado abaixo.**
       aplicar a migration de produção **antes** de mesclar o PR que expõe a
       tela nova no frontend, para evitar essa janela.
 
+## FEATURE-ORCAMENTO-EXCLUSAO-01 (2026-08-18)
+
+- [x] Implementada e homologada em DEV/QA (`jzjbiejmcaygwycvqggm`): migrations
+      `20260818150000_p2b_orcamento_exclusao_rascunho.sql`,
+      `20260818150100_p2b_status_orcamento_cancelado_enum.sql`,
+      `20260818150200_p2b_orcamento_cancelamento.sql`. 92/92 pgTAP (32 novas +
+      60 regressão), `npm run build` ok, validação por clique real no browser
+      confirmada (fluxo completo excluir/restaurar/cancelar/PDF) — ver
+      `docs/testing/TEST_REPORT_ORCAMENTO_EXCLUSAO01.md`.
+- [ ] **Não promovida para produção nesta rodada** — aguardando autorização
+      explícita do usuário, por decisão do próprio pedido original ("NÃO
+      aplicar automaticamente em produção").
+- **Nota operacional (repetir o cuidado de FEATURE-SERVICOS-01):** ao
+      promover, aplicar as 3 migrations em produção **antes** de mesclar o
+      PR do frontend para `main` — o deploy do GitHub Pages dispara em todo
+      push para `main` sem checar estado do banco, e desta vez o risco é
+      maior que o da etapa anterior: se o frontend for ao ar antes da
+      migration, a listagem inteira de Orçamentos quebra (colunas
+      `deleted_at`/`cancelado_em` inexistentes), não só uma tela isolada.
+
 ## Observação sobre o estado desta rodada
 
 **Atualizado na ETAPA PROD-01 (2026-08-13).** A maior parte deste checklist

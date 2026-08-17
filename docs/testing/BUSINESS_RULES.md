@@ -934,3 +934,115 @@ por serviço, tempo estimado × real, margem de mão de obra e retornos em
 garantia por serviço (o modelo de dados já está apto — `tempo_estimado_minutos`
 e os snapshots existem — mas nenhum novo dashboard/indicador foi
 implementado).
+
+## BR-045 — Exclusão lógica de orçamento em rascunho
+**Status:** DEFINIDA (FEATURE-ORCAMENTO-EXCLUSAO-01, DEV/QA — migration
+`20260818150000_p2b_orcamento_exclusao_rascunho.sql`, projeto
+`jzjbiejmcaygwycvqggm`)
+
+**Regra:** um orçamento só pode ser excluído logicamente enquanto
+`status = 'rascunho'` **e** não existir `ordens_servico` não-cancelada
+vinculada a ele (mesmo predicado de bloqueio de BR-008/OS-004, reutilizado
+verbatim de `rpc_criar_os` dentro de `rpc_excluir_orcamento_rascunho`).
+Nunca há `DELETE` físico: `orcamentos` ganhou `deleted_at`/`deleted_by`/
+`deleted_reason` (mesma convenção já usada em `clientes`/`veiculos`/`pecas`).
+Motivo obrigatório, mínimo de 5 caracteres, validado no backend (não confia
+no frontend) — mesmo padrão de `desconto_motivo` (BR relacionada a
+`rpc_aplicar_desconto_orcamento`).
+
+**Itens preservados, sem coluna própria de exclusão:** `orcamento_itens`
+**não** ganhou `deleted_at`. Os itens continuam fisicamente presentes no
+banco (`ORC-DEL-002`, confirmado por teste) — ficam ocultos apenas
+transitivamente, porque a RLS de `orcamento_itens` já depende da RLS do
+orçamento pai (BR-026: preservar histórico, nunca apagar).
+
+**RLS, não frontend, é quem esconde o excluído:** `orcamentos_select_autenticado`
+passou a exigir `deleted_at is null or tem_perfil('administrador_tecnico')`
+— mesmo o encarregado que acabou de excluir o próprio rascunho perde a
+visibilidade dele imediatamente (`ORC-DEL-001c`, confirmado por teste); só
+`administrador_tecnico` continua vendo, para fins de auditoria/restauração.
+Um cliente adulterando a query no navegador nunca traz a linha de volta,
+porque o filtro está no banco, não em `.is('deleted_at', null)` do
+frontend.
+
+**Interação com versionamento (decisão formalizada, não inventada):**
+excluir uma versão V2 recém-criada por `rpc_criar_versao_orcamento` (que já
+marcou a V1 original como `'substituido'` no momento em que a V2 nasceu)
+**não restaura V1 automaticamente**. Decisão confirmada com o dono do
+projeto: reverter o status de uma segunda linha que o usuário não tocou
+diretamente seria uma mutação silenciosa adicional — evitada de propósito.
+O estado é reversível a qualquer momento: `rpc_restaurar_orcamento_excluido`
+traz a V2 de volta, ou uma nova versão pode ser criada a partir da V1
+normalmente.
+
+**Restrições de um rascunho excluído:** não pode receber item (RLS),
+desconto, nem ser enviado (`rpc_aplicar_desconto_orcamento`/
+`rpc_enviar_orcamento` ganharam a guarda `deleted_at is not null`). Como
+`status` continua `'rascunho'` mesmo depois de excluído (`deleted_at` é
+ortogonal a `status`), toda RPC/policy que antes só checava
+`status = 'rascunho'` precisou da guarda extra — as demais RPCs (aprovação,
+versionamento, criação de OS, acréscimo) nunca aceitam `'rascunho'`
+diretamente, então não precisaram mudar.
+
+**Idempotência e concorrência:** repetir a exclusão do mesmo orçamento é
+bloqueado com mensagem específica, sem reprocessar nem duplicar evento de
+auditoria (`ORC-DEL-BONUS-01`). `select ... for update` dentro da RPC
+serializa qualquer corrida com `rpc_enviar_orcamento` sobre o mesmo
+orçamento — o estado final nunca é `status='enviado'` com `deleted_at`
+preenchido ao mesmo tempo, testado nas duas ordens possíveis
+(`ORC-CONC-001a/b`; concorrência real de duas sessões HTTP simultâneas fica
+em `docs/testing/scripts/etapa8_orcexclusao_concorrencia.sh`, mesmo padrão
+de `etapa7_concorrencia_*.sh` — pgTAP roda numa única sessão, não modela
+contenção real de lock).
+
+## BR-046 — Cancelamento formal de orçamento pós-rascunho
+**Status:** DEFINIDA (FEATURE-ORCAMENTO-EXCLUSAO-01, DEV/QA — migrations
+`20260818150100_p2b_status_orcamento_cancelado_enum.sql` e
+`20260818150200_p2b_orcamento_cancelamento.sql`)
+
+**Regra:** orçamento em `enviado`, `aprovado`, `rejeitado` ou
+`parcialmente_aprovado` pode ser cancelado formalmente via
+`rpc_cancelar_orcamento`, transição para o novo valor de enum
+`status_orcamento = 'cancelado'` — nunca revertida (cancelamento é
+definitivo; não existe "reabrir" nesta etapa). Bloqueado se existir
+`ordens_servico` não-cancelada vinculada (mesmo predicado de bloqueio de
+BR-008/BR-045). Motivo obrigatório, mínimo de 5 caracteres, validado no
+backend. Diferente da exclusão de rascunho, o cancelamento grava colunas
+próprias em `orcamentos` (`cancelado_em`/`cancelado_por`/
+`cancelamento_motivo`), espelhando `desconto_motivo/desconto_por/desconto_em`,
+em vez de depender só de `auditoria_eventos` — necessário porque `orcamentos`
+é legível por todo perfil ativo (inclusive `executor`), e `auditoria_eventos`
+não é (`auditoria_select_gestao` exclui `executor`).
+
+**Nenhuma outra RPC precisou mudar por causa do cancelamento** (confirmado
+lendo cada corpo antes de escrever a migration): `rpc_aprovar_orcamento`/
+`rpc_rejeitar_orcamento` exigem `status = 'enviado'`;
+`rpc_criar_versao_orcamento` exige `status in ('enviado','aprovado','rejeitado')`;
+`rpc_criar_os` exige `status in ('aprovado','parcialmente_aprovado')`;
+`rpc_registrar_acrescimo` exige `status = 'aprovado'`;
+`rpc_decidir_item_orcamento` exige `orc.status = 'enviado'` — `'cancelado'`
+nunca aparece em nenhum desses allow-lists, então um orçamento cancelado é
+automaticamente recusado em todos esses caminhos sem checagem adicional
+(confirmado por teste: `ORC-CAN-002` a `ORC-CAN-005`). PDF/histórico
+continuam disponíveis e mostram o status `cancelado` (`ORC-CAN-006`,
+BR-026/BR-043: nunca remover acesso ao histórico, só bloquear nova mutação
+comercial).
+
+**Idempotência:** cancelar um orçamento já cancelado é bloqueado com
+mensagem específica (`ORC-CAN-BONUS-01`).
+
+## BR-047 — Restauração administrativa de orçamento excluído
+**Status:** DEFINIDA (FEATURE-ORCAMENTO-EXCLUSAO-01, DEV/QA — migration
+`20260818150000_p2b_orcamento_exclusao_rascunho.sql`)
+
+**Regra:** `rpc_restaurar_orcamento_excluido` é restrito a
+`administrador_tecnico` — mais restrito que a própria exclusão (permitida
+a `encarregado` e `administrador_tecnico`), decisão deliberada: reverter
+uma ação destrutiva já auditada exige autoridade máxima, não a mesma
+autoridade que a praticou (`ORC-REST-002`, confirmado por teste: o próprio
+encarregado que excluiu não consegue restaurar). Restauração limpa
+`deleted_at`/`deleted_by`/`deleted_reason`; motivo de restauração é
+**opcional** (o histórico completo de quando/por quem/por que foi excluído
+já está integralmente em `auditoria_eventos`, evento `ORCAMENTO_EXCLUIDO` —
+não duplicado em novas colunas). Restaurar um orçamento que não está
+excluído é bloqueado, não silenciosamente ignorado (`ORC-REST-003`).

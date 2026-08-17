@@ -14,6 +14,7 @@ import InputNumber from 'primevue/inputnumber'
 import Textarea from 'primevue/textarea'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
+import Checkbox from 'primevue/checkbox'
 import IconField from 'primevue/iconfield'
 import InputIcon from 'primevue/inputicon'
 import Menu from 'primevue/menu'
@@ -27,6 +28,13 @@ const auth = useAuthStore()
 
 const podeGerir = () => ['encarregado', 'administrador_tecnico'].includes(auth.perfil)
 const podeAutorizar = () => ['encarregado', 'suporte_administrativo', 'administrador_tecnico'].includes(auth.perfil)
+// FEATURE-ORCAMENTO-EXCLUSAO-01 (BR-045/046/047) — mesmos perfis que já
+// gerem o ciclo de vida do rascunho (enviar/desconto/versão) podem excluir
+// rascunho ou cancelar; restauração é mais restrita (só administrador_tecnico,
+// decisão deliberada — reverter uma exclusão já auditada exige autoridade
+// máxima, não a mesma autoridade que a praticou).
+const podeExcluirOuCancelar = () => ['encarregado', 'administrador_tecnico'].includes(auth.perfil)
+const podeRestaurar = () => auth.perfil === 'administrador_tecnico'
 
 const orcamentos = ref([])
 const veiculos = ref([])
@@ -36,6 +44,11 @@ const carregando = ref(true)
 const erro = ref(false)
 const filtro = ref('')
 const temFiltroAtivo = computed(() => filtro.value.trim() !== '')
+// FEATURE-ORCAMENTO-EXCLUSAO-01 — a RLS de orcamentos já decide sozinha se
+// um administrador_tecnico recebe as linhas excluídas (deleted_at is not
+// null) de volta ou não; este toggle é só conveniência de UI sobre o que o
+// banco já entregou, nunca a barreira de segurança.
+const mostrarExcluidos = ref(false)
 
 // ETAPA 5 (P1-B) — APR-002: totais calculados a partir do status_aprovacao
 // de CADA item (valor originalmente orçado = soma de todos os itens, igual
@@ -70,13 +83,18 @@ function numeroLegivel(orc) {
 async function carregar() {
   carregando.value = true
   erro.value = false
+  let queryOrc = supabase
+    .from('orcamentos')
+    .select(
+      'id, versao, status, valor_total, autorizado_por_nome, comprovante_path, criado_em, solicitacao_id, deleted_at, deleted_by, deleted_reason, cancelado_em, cancelado_por, cancelamento_motivo, veiculo:veiculos(id, placa, prefixo, cliente_id), cliente:clientes(id, nome, tipo), orcamento_itens(id, peca_id, servico_id, codigo_servico_snapshot, tempo_estimado_minutos_snapshot, garantia_dias_snapshot, descricao, quantidade, valor_unitario, status_aprovacao, meio_aprovacao, autorizado_por_nome, autorizado_em, registrado_por, comprovante_path, observacao), orcamento_acrescimos(id, valor_acrescimo, justificativa, criado_em)'
+    )
+    .order('criado_em', { ascending: false })
+  // Filtro de conveniência (não é a barreira de segurança — ver mostrarExcluidos acima).
+  if (!(podeRestaurar() && mostrarExcluidos.value)) {
+    queryOrc = queryOrc.is('deleted_at', null)
+  }
   const [respOrc, respVeiculos, respPecas, respServicos] = await Promise.all([
-    supabase
-      .from('orcamentos')
-      .select(
-        'id, versao, status, valor_total, autorizado_por_nome, comprovante_path, criado_em, solicitacao_id, veiculo:veiculos(id, placa, prefixo, cliente_id), cliente:clientes(id, nome, tipo), orcamento_itens(id, peca_id, servico_id, codigo_servico_snapshot, tempo_estimado_minutos_snapshot, garantia_dias_snapshot, descricao, quantidade, valor_unitario, status_aprovacao, meio_aprovacao, autorizado_por_nome, autorizado_em, registrado_por, comprovante_path, observacao), orcamento_acrescimos(id, valor_acrescimo, justificativa, criado_em)'
-      )
-      .order('criado_em', { ascending: false }),
+    queryOrc,
     supabase.from('veiculos').select('id, placa, prefixo, cliente_id, cliente:clientes(nome, tipo)').is('deleted_at', null).order('placa'),
     supabase.from('pecas').select('id, sku, descricao').is('deleted_at', null).order('descricao'),
     // FEATURE-SERVICOS-01 — só serviços ativos aparecem como opção padrão
@@ -482,6 +500,94 @@ async function salvarDesconto() {
   await carregar()
 }
 
+// ---------- Exclusão de rascunho / Cancelamento (FEATURE-ORCAMENTO-EXCLUSAO-01) ----------
+// Dois fluxos distintos (BR-045 exclusão de rascunho vs BR-046 cancelamento
+// pós-rascunho), cada um com motivo obrigatório validado no backend — os
+// diálogos aqui só espelham essa validação para dar feedback cedo, nunca
+// são a autoridade real. Mesmo padrão de diálogo com Textarea obrigatório
+// já usado acima em "Aplicar Desconto".
+const dialogoExclusaoAberto = ref(false)
+const salvandoExclusao = ref(false)
+const formExclusao = ref({ motivo: '' })
+
+function abrirExclusao(orc) {
+  orcamentoAtual.value = orc
+  formExclusao.value = { motivo: '' }
+  dialogoExclusaoAberto.value = true
+}
+
+async function confirmarExclusao() {
+  if (!formExclusao.value.motivo || formExclusao.value.motivo.trim().length < 5) {
+    toast.add({ severity: 'warn', summary: 'Motivo da exclusão é obrigatório (mín. 5 caracteres)', life: 5000 })
+    return
+  }
+  salvandoExclusao.value = true
+  const { error } = await supabase.rpc('rpc_excluir_orcamento_rascunho', {
+    p_orcamento_id: orcamentoAtual.value.id,
+    p_motivo: formExclusao.value.motivo,
+  })
+  salvandoExclusao.value = false
+  if (error) {
+    toast.add({ severity: 'error', summary: 'Erro ao excluir orçamento', detail: error.message, life: 8000 })
+    return
+  }
+  toast.add({ severity: 'success', summary: 'Orçamento excluído', life: 3000 })
+  dialogoExclusaoAberto.value = false
+  await carregar()
+}
+
+const dialogoCancelamentoAberto = ref(false)
+const salvandoCancelamento = ref(false)
+const formCancelamento = ref({ motivo: '' })
+
+function abrirCancelamento(orc) {
+  orcamentoAtual.value = orc
+  formCancelamento.value = { motivo: '' }
+  dialogoCancelamentoAberto.value = true
+}
+
+async function confirmarCancelamento() {
+  if (!formCancelamento.value.motivo || formCancelamento.value.motivo.trim().length < 5) {
+    toast.add({ severity: 'warn', summary: 'Motivo do cancelamento é obrigatório (mín. 5 caracteres)', life: 5000 })
+    return
+  }
+  salvandoCancelamento.value = true
+  const { error } = await supabase.rpc('rpc_cancelar_orcamento', {
+    p_orcamento_id: orcamentoAtual.value.id,
+    p_motivo: formCancelamento.value.motivo,
+  })
+  salvandoCancelamento.value = false
+  if (error) {
+    toast.add({ severity: 'error', summary: 'Erro ao cancelar orçamento', detail: error.message, life: 8000 })
+    return
+  }
+  toast.add({ severity: 'success', summary: 'Orçamento cancelado', life: 3000 })
+  dialogoCancelamentoAberto.value = false
+  await carregar()
+}
+
+// Restauração não exige motivo obrigatório (BR-047 — o histórico completo
+// da exclusão original já está em auditoria_eventos); por isso usa o
+// ConfirmDialog simples já padrão no projeto, igual confirmarAprovacao/confirmarRejeicao.
+function confirmarRestauracao(orc) {
+  confirm.require({
+    message: `Restaurar o orçamento excluído (v${orc.versao})? Ele volta a aparecer nas listagens operacionais.`,
+    header: 'Confirmar restauração',
+    icon: 'pi pi-refresh',
+    acceptLabel: 'Restaurar',
+    rejectLabel: 'Cancelar',
+    accept: async () => {
+      const { error } = await supabase.rpc('rpc_restaurar_orcamento_excluido', { p_orcamento_id: orc.id })
+      if (error) {
+        toast.add({ severity: 'error', summary: 'Erro ao restaurar', detail: error.message, life: 6000 })
+        return
+      }
+      toast.add({ severity: 'success', summary: 'Orçamento restaurado', life: 3000 })
+      await carregar()
+    },
+  })
+}
+
 // ---------- Decisão por item (ETAPA 5/P1-B — APR-002/004/005/006) ----------
 // Aprovação deixou de ser tudo-ou-nada: cada item tem sua própria decisão
 // (pendente/aprovado/rejeitado), com meio de aprovação estruturado
@@ -563,7 +669,7 @@ async function decidirItem(item, decisao) {
 function construirMenuAcoes(orc) {
   if (!orc) return []
   const lista = []
-  if (orc.status === 'rascunho' && podeGerir()) {
+  if (orc.status === 'rascunho' && !orc.deleted_at && podeGerir()) {
     lista.push({ label: 'Aplicar desconto', icon: 'pi pi-percentage', command: () => abrirDesconto(orc) })
   }
   if (orc.status === 'enviado') {
@@ -583,6 +689,23 @@ function construirMenuAcoes(orc) {
   }
   if (['enviado', 'aprovado', 'parcialmente_aprovado', 'rejeitado'].includes(orc.status) && podeGerir()) {
     lista.push({ label: 'Nova versão', icon: 'pi pi-copy', command: () => novaVersao(orc) })
+  }
+  // FEATURE-ORCAMENTO-EXCLUSAO-01 (BR-045/046/047) — ações destrutivas
+  // separadas por um divisor, sempre no fim do menu (nunca botão vermelho
+  // permanente na tabela, per instrução seção 20). Orçamento 'cancelado'
+  // não entra em nenhum dos blocos acima nem abaixo: fica sem nenhuma ação
+  // além de Visualizar/PDF (já fora deste menu), read-only por design.
+  if (orc.status === 'rascunho' && !orc.deleted_at && podeExcluirOuCancelar()) {
+    lista.push({ separator: true })
+    lista.push({ label: 'Excluir rascunho', icon: 'pi pi-trash', class: 'item-menu-destrutivo', command: () => abrirExclusao(orc) })
+  }
+  if (['enviado', 'aprovado', 'parcialmente_aprovado', 'rejeitado'].includes(orc.status) && podeExcluirOuCancelar()) {
+    lista.push({ separator: true })
+    lista.push({ label: 'Cancelar orçamento', icon: 'pi pi-ban', class: 'item-menu-destrutivo', command: () => abrirCancelamento(orc) })
+  }
+  if (orc.deleted_at && podeRestaurar()) {
+    lista.push({ separator: true })
+    lista.push({ label: 'Restaurar orçamento', icon: 'pi pi-refresh', command: () => confirmarRestauracao(orc) })
   }
   return lista
 }
@@ -617,6 +740,10 @@ onMounted(() => {
         <InputIcon class="pi pi-search" />
         <InputText v-model="filtro" placeholder="Buscar por cliente, veículo, número ou placa" />
       </IconField>
+      <label v-if="podeRestaurar()" class="toggle-excluidos">
+        <Checkbox v-model="mostrarExcluidos" binary @change="carregar" />
+        Mostrar excluídos
+      </label>
     </div>
 
     <div class="panel">
@@ -652,7 +779,11 @@ onMounted(() => {
         </Column>
         <Column header="Status">
           <template #body="{ data }">
-            <Tag :severity="STATUS_ORCAMENTO[data.status]?.severidade" :value="STATUS_ORCAMENTO[data.status]?.label ?? data.status" />
+            <!-- FEATURE-ORCAMENTO-EXCLUSAO-01: deleted_at é ortogonal a status
+                 (um rascunho excluído continua status='rascunho') — por isso
+                 "Excluído" precisa de checagem própria, não é um valor do enum. -->
+            <Tag v-if="data.deleted_at" severity="danger" value="Excluído" :title="data.deleted_reason" />
+            <Tag v-else :severity="STATUS_ORCAMENTO[data.status]?.severidade" :value="STATUS_ORCAMENTO[data.status]?.label ?? data.status" />
           </template>
         </Column>
         <Column header="Valor Original" bodyClass="col-valor">
@@ -673,7 +804,7 @@ onMounted(() => {
         <Column header="Ações" style="width: 210px">
           <template #body="{ data }">
             <div class="acoes-linha">
-              <template v-if="data.status === 'rascunho' && podeGerir()">
+              <template v-if="data.status === 'rascunho' && !data.deleted_at && podeGerir()">
                 <Button label="Itens" size="small" text @click="abrirItens(data)" />
                 <Button label="Enviar" icon="pi pi-send" size="small" @click="enviar(data)" />
               </template>
@@ -953,6 +1084,48 @@ onMounted(() => {
         <Button label="Aplicar" :loading="salvandoDesconto" @click="salvarDesconto" />
       </template>
     </Dialog>
+
+    <!-- Excluir rascunho (FEATURE-ORCAMENTO-EXCLUSAO-01 — BR-045) -->
+    <Dialog v-model:visible="dialogoExclusaoAberto" modal header="Excluir orçamento?" style="width: 460px">
+      <p class="texto-explicativo">
+        Este orçamento ainda está em rascunho e será removido das listagens operacionais. O histórico será preservado.
+      </p>
+      <p v-if="orcamentoAtual" class="resumo-decisao">
+        Cliente: <strong>{{ orcamentoAtual.cliente?.nome || '—' }}</strong>
+        Veículo: <strong>{{ orcamentoAtual.veiculo?.placa || '—' }}</strong>
+        Versão: <strong>V{{ orcamentoAtual.versao }}</strong>
+        Valor atual: <strong>{{ formatarMoeda(orcamentoAtual.valor_total) }}</strong>
+      </p>
+      <div class="form-campo">
+        <label>Motivo da exclusão (obrigatório)</label>
+        <Textarea v-model="formExclusao.motivo" rows="3" autoResize placeholder="Mínimo 5 caracteres" />
+      </div>
+      <template #footer>
+        <Button label="Voltar" text @click="dialogoExclusaoAberto = false" />
+        <Button label="Excluir orçamento" severity="danger" :loading="salvandoExclusao" @click="confirmarExclusao" />
+      </template>
+    </Dialog>
+
+    <!-- Cancelar orçamento (FEATURE-ORCAMENTO-EXCLUSAO-01 — BR-046) -->
+    <Dialog v-model:visible="dialogoCancelamentoAberto" modal header="Cancelar orçamento?" style="width: 460px">
+      <p class="texto-explicativo">
+        Este documento será mantido para fins de histórico e auditoria, mas não poderá continuar no fluxo comercial.
+      </p>
+      <p v-if="orcamentoAtual" class="resumo-decisao">
+        Cliente: <strong>{{ orcamentoAtual.cliente?.nome || '—' }}</strong>
+        Veículo: <strong>{{ orcamentoAtual.veiculo?.placa || '—' }}</strong>
+        Versão: <strong>V{{ orcamentoAtual.versao }}</strong>
+        Valor atual: <strong>{{ formatarMoeda(orcamentoAtual.valor_total) }}</strong>
+      </p>
+      <div class="form-campo">
+        <label>Motivo do cancelamento (obrigatório)</label>
+        <Textarea v-model="formCancelamento.motivo" rows="3" autoResize placeholder="Mínimo 5 caracteres" />
+      </div>
+      <template #footer>
+        <Button label="Voltar" text @click="dialogoCancelamentoAberto = false" />
+        <Button label="Cancelar orçamento" severity="danger" :loading="salvandoCancelamento" @click="confirmarCancelamento" />
+      </template>
+    </Dialog>
   </div>
 </template>
 
@@ -1017,6 +1190,24 @@ onMounted(() => {
 }
 .busca :deep(.p-inputicon) {
   color: var(--text-faint);
+}
+
+.toggle-excluidos {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+/* FEATURE-ORCAMENTO-EXCLUSAO-01 — ação destrutiva com texto vermelho dentro
+   do menu de três pontos (nunca botão vermelho permanente na tabela). */
+:deep(.item-menu-destrutivo .p-menu-item-link),
+:deep(.item-menu-destrutivo .p-menu-item-icon),
+:deep(.item-menu-destrutivo .p-menu-item-label) {
+  color: var(--danger);
 }
 
 .panel {
@@ -1201,6 +1392,13 @@ onMounted(() => {
 .item-total-footer strong {
   font-size: 17px;
   margin-left: 6px;
+}
+
+.texto-explicativo {
+  margin: 0 0 14px;
+  font-size: 13.5px;
+  color: var(--text-secondary);
+  line-height: 1.5;
 }
 
 .resumo-decisao {
