@@ -15,6 +15,14 @@ import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Dialog from 'primevue/dialog'
 import Textarea from 'primevue/textarea'
+// OS-UX-01 — reestruturação em abas (tela era uma rolagem única); STATUS_OS
+// centraliza rótulo/cor do badge de status (era um mapa local + string crua).
+import { STATUS_OS } from '../../constants/statusVisual.js'
+import Tabs from 'primevue/tabs'
+import TabList from 'primevue/tablist'
+import Tab from 'primevue/tab'
+import TabPanels from 'primevue/tabpanels'
+import TabPanel from 'primevue/tabpanel'
 
 const route = useRoute()
 const router = useRouter()
@@ -48,11 +56,6 @@ const osAdicionais = ref([])
 // ETAPA 6 (P1-C) — item 2/3: fotos da OS.
 const osFotos = ref([])
 const checklistTemplateAtual = ref(null)
-
-const severidadeStatus = {
-  aberta: 'info', em_diagnostico: 'warn', aguardando_aprovacao: 'warn', em_execucao: 'warn',
-  aguardando_teste: 'warn', concluida: 'success', liberada: 'success', reaberta_garantia: 'danger', cancelada: 'danger',
-}
 
 function formatarMoeda(valor) {
   return (valor ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -204,6 +207,24 @@ async function carregar() {
   } else {
     checklistItens.value = []
     respostas.value = []
+  }
+  // OS-UX-01 — aba Histórico: leitura adicional só de mudança de status,
+  // de uma tabela de auditoria que já existe (auditoria_eventos, populada
+  // por trigger — ver supabase/migrations/20260812093500_p1a_auditoria.sql).
+  // Não é RPC nem migration nova; a RLS da própria tabela já nega pra
+  // executor, `podeVerHistorico` só espelha isso pra não fazer um select
+  // que sempre voltaria vazio.
+  if (podeVerHistorico.value) {
+    const { data: respAuditoria } = await supabase
+      .from('auditoria_eventos')
+      .select('id, valor_anterior, valor_novo, criado_em, usuario:profiles(nome)')
+      .eq('entidade', 'ordens_servico')
+      .eq('entidade_id', osId.value)
+      .eq('acao', 'mudanca_status')
+      .order('criado_em', { ascending: true })
+    auditoriaEventos.value = respAuditoria ?? []
+  } else {
+    auditoriaEventos.value = []
   }
   carregando.value = false
 }
@@ -766,286 +787,556 @@ function valorAdicional(adicional, filtro) {
 const severidadeStatusAdicional = { aguardando_aprovacao: 'warn', aprovado: 'success', parcialmente_aprovado: 'warn', rejeitado: 'danger' }
 const tagDecisaoItemAdicional = { pendente: 'warn', aprovado: 'success', rejeitado: 'danger' }
 
+// ======================================================================
+// OS-UX-01 — acréscimos de reestruturação de UI (cabeçalho/barra de etapas/
+// abas/histórico). Nada acima desta linha foi alterado: mesmas RPCs, mesmos
+// parâmetros, mesmo RBAC, mesmo state machine.
+// ======================================================================
+
+const tabAtiva = ref('geral')
+
+// Histórico: mesma RLS de auditoria_eventos (perfil !== 'executor')
+// espelhada aqui só pra não disparar um select que sempre voltaria vazio.
+const auditoriaEventos = ref([])
+const podeVerHistorico = computed(() => auth.perfil !== 'executor')
+
+// Barra de etapas — um passo por status REAL da máquina de estado (não
+// inventa estado novo). `aguardando_aprovacao` não é passo próprio (é
+// sub-estado opcional entre Diagnóstico e Execução — ver plano); vira selo
+// no passo "Diagnóstico". `cancelada`/`reaberta_garantia` não aparecem como
+// passo (cancelada é terminal, alcançável de 3 pontos diferentes;
+// reaberta_garantia é valor vestigial, nenhuma transição real neste arquivo
+// o produz — uma garantia é sempre uma OS nova via rpc_criar_os_garantia).
+const ETAPAS_OS = [
+  { status: 'aberta', label: 'Aberta', icone: 'pi pi-file' },
+  { status: 'em_diagnostico', label: 'Diagnóstico', icone: 'pi pi-search' },
+  { status: 'em_execucao', label: 'Execução', icone: 'pi pi-wrench' },
+  { status: 'aguardando_teste', label: 'Teste', icone: 'pi pi-verified' },
+  { status: 'concluida', label: 'Concluída', icone: 'pi pi-check-circle' },
+  { status: 'liberada', label: 'Liberada', icone: 'pi pi-flag-fill' },
+]
+const indiceEtapaAtual = computed(() => {
+  if (os.value?.status === 'aguardando_aprovacao') return 1 // mesma posição de "Diagnóstico"
+  return ETAPAS_OS.findIndex((e) => e.status === os.value?.status)
+})
+const mostrarBarraEtapas = computed(() => indiceEtapaAtual.value !== -1)
+const emAguardandoAprovacao = computed(() => os.value?.status === 'aguardando_aprovacao')
+
+// Cabeçalho — hierarquia de botões (item 5 do pedido): quando só existe UMA
+// transição não-destrutiva disponível, ela é a ação primária; quando há
+// mais de uma (em_diagnostico: "Enviar p/ Aprovação" x "Iniciar Execução"),
+// nenhuma tem preferência codificada no state machine — as duas ficam
+// secundárias, empatadas. "Cancelar" nunca entra nesse grupo (é sempre
+// destrutiva, renderizada à parte).
+const transicoesNaoDanger = computed(() => transicoesDisponiveis.value.filter((t) => !t.danger))
+const transicaoDanger = computed(() => transicoesDisponiveis.value.find((t) => t.danger) ?? null)
+
+// Resumo operacional (Visão Geral) — só agrega o que já está carregado,
+// nenhum fetch novo, nenhum cálculo de negócio (é contagem/soma de exibição).
+const resumoOS = computed(() => ({
+  execucoesAtivas: executores.value.filter((e) => e.ativo !== false && !e.fim).length,
+  totalExecucoes: executores.value.length,
+  totalPecasQtd: movimentos.value.length,
+  totalPecasValor: movimentos.value.reduce((s, m) => s + Number(m.quantidade) * Number(m.custo_unitario ?? 0), 0),
+  totalFotos: osFotos.value.length,
+  adicionaisAbertos: osAdicionais.value.filter((a) => a.status === 'aguardando_aprovacao').length,
+  adicionaisTotal: osAdicionais.value.length,
+}))
+
+// Histórico — timeline client-side juntando o evento real de mudança de
+// status (auditoria_eventos) com eventos já reconstituíveis dos arrays já
+// carregados (abertura, apontamentos, fotos, adicionais, garantias). Nenhum
+// dado inventado — cada linha vem de um campo que já existe.
+function rotuloStatus(s) {
+  return STATUS_OS[s]?.label ?? s ?? '—'
+}
+const eventosHistorico = computed(() => {
+  if (!os.value) return []
+  const eventos = []
+  if (os.value.data_abertura) {
+    eventos.push({ data: os.value.data_abertura, titulo: 'OS aberta', detalhe: null, icone: 'pi pi-file' })
+  }
+  for (const ev of auditoriaEventos.value) {
+    eventos.push({
+      data: ev.criado_em,
+      titulo: `Status alterado: ${rotuloStatus(ev.valor_anterior?.status)} → ${rotuloStatus(ev.valor_novo?.status)}`,
+      detalhe: ev.usuario?.nome ? `por ${ev.usuario.nome}` : null,
+      icone: 'pi pi-sync',
+    })
+  }
+  for (const e of executores.value) {
+    if (e.inicio) eventos.push({ data: e.inicio, titulo: `Apontamento iniciado (${e.etapa})`, detalhe: e.usuario?.nome ? `por ${e.usuario.nome}` : null, icone: 'pi pi-play' })
+    if (e.fim) eventos.push({ data: e.fim, titulo: `Apontamento encerrado (${e.etapa})`, detalhe: e.usuario?.nome ? `por ${e.usuario.nome}` : null, icone: 'pi pi-stop' })
+    if (e.ativo === false && e.removido_em) eventos.push({ data: e.removido_em, titulo: 'Participação de executor encerrada', detalhe: e.motivo_remocao, icone: 'pi pi-user-minus' })
+  }
+  for (const f of osFotos.value) {
+    eventos.push({ data: f.enviado_em, titulo: `Foto (${f.tipo}) enviada`, detalhe: f.enviado_por_profile?.nome ? `por ${f.enviado_por_profile.nome}` : null, icone: 'pi pi-image' })
+  }
+  for (const a of osAdicionais.value) {
+    eventos.push({ data: a.criado_em, titulo: `Adicional AD-${String(a.numero).padStart(3, '0')} identificado`, detalhe: a.motivo, icone: 'pi pi-plus-circle' })
+  }
+  for (const g of osGarantias.value) {
+    eventos.push({ data: g.data_abertura, titulo: `Garantia aberta a partir desta OS: ${g.veiculo?.placa ?? ''}`, detalhe: rotuloStatus(g.status), icone: 'pi pi-shield' })
+  }
+  if (os.value.previsao_definida_em) {
+    eventos.push({ data: os.value.previsao_definida_em, titulo: 'Previsão de conclusão definida/alterada', detalhe: null, icone: 'pi pi-calendar' })
+  }
+  return eventos.filter((e) => e.data).sort((a, b) => new Date(b.data) - new Date(a.data))
+})
+
 watch(osId, carregar, { immediate: true })
 </script>
 
 <template>
-  <div v-if="carregando">Carregando...</div>
-  <div v-else-if="os">
-    <div class="cabecalho">
-      <div>
-        <Button icon="pi pi-arrow-left" text @click="router.push('/os')" />
-        <h2 style="display:inline">OS — {{ os.veiculo?.placa }} <span v-if="os.veiculo?.prefixo">({{ os.veiculo.prefixo }})</span></h2>
-      </div>
-      <Tag :severity="severidadeStatus[os.status]" :value="os.status" style="font-size: 1rem" />
-    </div>
+  <div v-if="carregando" class="estado-carregando">Carregando...</div>
+  <div v-else-if="os" class="os-detalhe">
 
-    <p><strong>Cliente:</strong> {{ os.cliente?.nome }} &nbsp;|&nbsp; <strong>Tipo:</strong> {{ os.tipo }} &nbsp;|&nbsp; <strong>Aberta em:</strong> {{ new Date(os.data_abertura).toLocaleString('pt-BR') }}</p>
-    <p v-if="os.data_liberacao"><strong>Liberada em:</strong> {{ new Date(os.data_liberacao).toLocaleString('pt-BR') }}</p>
-    <!-- ETAPA 6 (P1-C) — Decisão 3 (PEN-003): prazo manual, auditado -->
-    <p>
-      <strong>Previsão de conclusão:</strong>
-      <span v-if="os.previsao_conclusao">{{ new Date(os.previsao_conclusao).toLocaleString('pt-BR') }}</span>
-      <span v-else class="hint">não definida</span>
-      <Button v-if="podeDefinirPrazo && !osEncerrada" label="Definir/Alterar" size="small" text @click="abrirPrazo" />
-    </p>
-    <!-- ETAPA 6 (P1-C) — Decisão 1/2 (item 10): custo interno de OS interna -->
-    <p v-if="os.tipo === 'interna' && os.custo_calculado_em">
-      <strong>Custo interno:</strong> peças {{ formatarMoeda(os.custo_pecas) }} + mão de obra {{ formatarMoeda(os.custo_mao_obra) }}
-      ({{ os.horas_apontadas_total }}h × {{ formatarMoeda(os.custo_hora_aplicado) }}) = <strong>{{ formatarMoeda(os.custo_total) }}</strong>
-      — sem cobrança (cliente interno).
-    </p>
-
-    <p v-if="osOrigem" class="hint">
-      Esta OS é garantia da
-      <router-link :to="'/os/' + osOrigem.id">OS {{ osOrigem.veiculo?.placa }}<span v-if="osOrigem.veiculo?.prefixo"> ({{ osOrigem.veiculo.prefixo }})</span></router-link>
-      — sem cobrança ao cliente.
-    </p>
-    <div v-if="osGarantias.length > 0" class="hint">
-      Garantia(s) aberta(s) a partir desta OS:
-      <router-link v-for="g in osGarantias" :key="g.id" :to="'/os/' + g.id" style="margin-right: 0.5rem">
-        {{ g.veiculo?.placa }} ({{ g.status }})
-      </router-link>
-    </div>
-    <p v-if="dentroDoPrazoGarantia" class="hint">Garantia até {{ prazoGarantiaAte.toLocaleDateString('pt-BR') }}.</p>
-
-    <div class="acoes-status" v-if="podeTransicionar">
-      <Button
-        v-for="t in transicoesDisponiveis"
-        :key="t.next"
-        :label="t.label"
-        size="small"
-        :severity="t.danger ? 'danger' : 'primary'"
-        :outlined="t.danger"
-        @click="confirmarTransicao(t)"
-      />
-      <Button v-if="os.status === 'aguardando_teste'" label="Concluir (checklist)" size="small" severity="success" @click="concluir" />
-      <Button
-        v-if="os.status === 'concluida' && os.tipo === 'externa' && podeGerarCobranca"
-        label="Gerar Cobrança"
-        size="small"
-        icon="pi pi-wallet"
-        @click="router.push({ path: '/financeiro/cobrancas', query: { cliente_id: os.cliente.id, os_id: os.id } })"
-      />
-      <Button v-if="os.status === 'concluida'" label="Liberar" size="small" severity="success" @click="liberar" />
-      <Button
-        v-if="dentroDoPrazoGarantia && podeAbrirGarantia"
-        label="Abrir Garantia"
-        size="small"
-        icon="pi pi-shield"
-        severity="warn"
-        @click="confirmarAbrirGarantia"
-      />
-      <!-- ETAPA 6 (P1-C) — item 4/5 -->
-      <Button
-        v-if="['concluida', 'liberada'].includes(os.status)"
-        label="Relatório de Encerramento"
-        size="small"
-        icon="pi pi-file"
-        text
-        @click="router.push('/os/' + osId + '/relatorio-encerramento')"
-      />
-      <Button
-        v-if="os.os_origem_id"
-        label="Relatório de Garantia"
-        size="small"
-        icon="pi pi-shield"
-        text
-        @click="router.push('/os/' + osId + '/relatorio-garantia')"
-      />
-    </div>
-
-    <div class="secao">
-      <h3>Checklist Técnico</h3>
-      <div v-if="!os.checklist_template_id && podeTransicionar" class="form-linha">
-        <Select :options="checklistTemplates" optionLabel="nome" optionValue="id" placeholder="Definir checklist" @update:modelValue="definirChecklist" />
-      </div>
-      <p v-else-if="!os.checklist_template_id" class="hint">Nenhum checklist definido.</p>
-      <ul v-else class="checklist">
-        <li v-for="item in checklistItens" :key="item.id">
-          <Checkbox
-            :modelValue="respostaDoItem(item.id)?.ok ?? false"
-            binary
-            :disabled="!podeResponderChecklist"
-            @update:modelValue="(v) => alternarResposta(item, v)"
-          />
-          <span>{{ item.descricao }}</span>
-          <Tag v-if="item.obrigatorio" severity="danger" value="obrigatório" />
-        </li>
-      </ul>
-    </div>
-
-    <div class="secao">
-      <h3>Apontamento de Execução</h3>
-      <div class="form-linha" v-if="podeApontar">
-        <Select v-model="formApontamento.etapa" :options="etapas" placeholder="Etapa" />
-        <InputText v-model="formApontamento.observacao" placeholder="Observação (opcional)" />
-        <Button label="Iniciar" size="small" @click="iniciarApontamento" />
-      </div>
-      <DataTable :value="executores" dataKey="id" size="small">
-        <Column header="Executor">
-          <template #body="{ data }">
-            {{ data.usuario?.nome }}
-            <Tag v-if="data.ativo === false" severity="danger" value="removido" style="margin-left:0.3rem;font-size:0.65rem" />
-          </template>
-        </Column>
-        <Column field="etapa" header="Etapa" />
-        <Column header="Início"><template #body="{ data }">{{ new Date(data.inicio).toLocaleString('pt-BR') }}</template></Column>
-        <Column header="Fim">
-          <template #body="{ data }">
-            <span v-if="data.fim">{{ new Date(data.fim).toLocaleString('pt-BR') }}</span>
-            <!-- CON-007 (ETAPA 4 P1-A): encerrar só disponível enquanto a OS não está fechada -->
-            <Button v-else-if="data.usuario_id === auth.profile.id && !osEncerrada" label="Encerrar" size="small" text @click="encerrarApontamento(data)" />
-          </template>
-        </Column>
-        <Column field="observacao" header="Observação" />
-        <!-- ETAPA 6 (P1-C) — item 8 (EXE-003): encerrar participação, nunca apagar histórico -->
-        <Column header="">
-          <template #body="{ data }">
-            <Button v-if="podeRemoverExecutor && data.ativo !== false && !osEncerrada" label="Remover" size="small" text severity="danger" @click="abrirRemoverExecutor(data)" />
-          </template>
-        </Column>
-      </DataTable>
-      <p v-if="osEncerrada" class="hint">OS encerrada — apontamentos não são mais editáveis diretamente (correção formal auditada disponível ao encarregado/admin técnico).</p>
-    </div>
-
-    <div class="secao" v-if="os.orcamento_id && itensMaoDeObra.length > 0">
-      <h3>Itens de Mão de Obra do Orçamento (CON-002)</h3>
-      <p class="hint">Itens sem peça não têm sinal automático de execução — marque manualmente antes de concluir a OS.</p>
-      <ul class="checklist">
-        <li v-for="item in itensMaoDeObra" :key="item.id">
-          <span>{{ item.descricao }} ({{ item.quantidade }})</span>
-          <Tag :severity="item.execucao_status === 'executado' ? 'success' : item.execucao_status === 'cancelado' ? 'danger' : 'warn'" :value="item.execucao_status" />
-          <template v-if="podeMarcarExecucao && !['executado', 'cancelado'].includes(item.execucao_status)">
-            <Button label="Marcar executado" size="small" text @click="marcarItemExecutado(item)" />
-            <Button label="Dispensar (cancelar)" size="small" text severity="danger" @click="abrirCancelarItem(item)" />
-          </template>
-        </li>
-      </ul>
-    </div>
-
-    <div class="secao">
-      <h3>Peças Utilizadas</h3>
-      <!-- EST-004/GAR-005 (P1-A) + item 8 (P1-B, adicionais): quando existe item
-           elegível (orçamento, garantia OU adicional aprovado), a baixa exige
-           escolher o ITEM — a peça é derivada dele, nunca uma peça livre fora
-           do escopo aprovado. A origem (orçamento x adicional) fica sempre
-           identificável no ledger (orcamento_item_id x os_adicional_item_id). -->
-      <div class="form-linha" v-if="podeBaixarPeca && podeMovimentarEstoque && itensParaBaixa.length > 0">
-        <Select
-          v-model="formBaixa.chave"
-          :options="itensParaBaixa"
-          optionLabel="descricao"
-          optionValue="chave"
-          filter
-          placeholder="Item aprovado (orçamento/adicional/garantia)"
-          @update:modelValue="selecionouItemBaixa"
-        >
-          <template #option="{ option }">
-            <Tag v-if="option.origem === 'adicional'" severity="warn" value="adicional" style="margin-right:0.3rem;font-size:0.65rem" />
-            {{ option.descricao }} — {{ option.peca?.descricao }} (restam {{ option.restante }} de {{ option.quantidade }})
-          </template>
-        </Select>
-        <InputNumber v-model="formBaixa.quantidade" :minFractionDigits="0" :maxFractionDigits="3" placeholder="Qtde" />
-        <Button label="Baixar" size="small" @click="baixarPeca" :disabled="!formBaixa.chave" />
-      </div>
-      <p v-else-if="podeBaixarPeca && podeMovimentarEstoque && !podeBaixarLivre" class="hint">
-        Nenhum item de peça aprovado (orçamento/adicional) disponível para baixa nesta OS.
-      </p>
-      <div class="form-linha" v-else-if="podeBaixarPeca && podeMovimentarEstoque">
-        <Select v-model="formBaixa.peca_id" :options="pecas" optionLabel="descricao" optionValue="id" filter placeholder="Peça" />
-        <InputNumber v-model="formBaixa.quantidade" :minFractionDigits="0" :maxFractionDigits="3" placeholder="Qtde" />
-        <Button label="Baixar" size="small" @click="baixarPeca" />
-      </div>
-      <p v-else-if="podeBaixarPeca" class="hint">Baixa de peças só é permitida com a OS em diagnóstico ou execução.</p>
-      <DataTable :value="movimentos" dataKey="id" size="small">
-        <Column header="Peça"><template #body="{ data }">{{ data.peca?.descricao }} ({{ data.peca?.sku }})</template></Column>
-        <Column field="quantidade" header="Qtde" />
-        <Column header="Origem">
-          <template #body="{ data }">
-            <Tag v-if="data.os_adicional_item_id" severity="warn" value="adicional" />
-            <Tag v-else-if="data.orcamento_item_id" severity="info" value="orçamento" />
-            <span v-else class="hint">avulsa</span>
-          </template>
-        </Column>
-        <Column header="Custo Unit."><template #body="{ data }">{{ (data.custo_unitario ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }}</template></Column>
-        <Column header="Data"><template #body="{ data }">{{ new Date(data.criado_em).toLocaleString('pt-BR') }}</template></Column>
-      </DataTable>
-    </div>
-
-    <!-- ETAPA 6 (P1-C) — item 2/3 (EXE-005/006/007, Decisão 6): fotos -->
-    <div class="secao">
-      <h3>Fotos</h3>
-      <p v-if="checklistTemplateAtual" class="hint">
-        Este tipo de serviço exige:
-        <Tag :severity="checklistTemplateAtual.foto_antes_obrigatoria ? 'danger' : 'secondary'" :value="checklistTemplateAtual.foto_antes_obrigatoria ? 'foto antes obrigatória' : 'foto antes opcional'" style="margin-right:0.3rem" />
-        <Tag :severity="checklistTemplateAtual.foto_depois_obrigatoria ? 'danger' : 'secondary'" :value="checklistTemplateAtual.foto_depois_obrigatoria ? 'foto depois obrigatória' : 'foto depois opcional'" />
-      </p>
-      <div class="form-linha" v-if="podeAnexarFoto && !osEncerrada">
-        <Select v-model="formFoto.tipo" :options="[{ label: 'Antes', value: 'antes' }, { label: 'Depois', value: 'depois' }, { label: 'Outro', value: 'outro' }]" optionLabel="label" optionValue="value" />
-        <input type="file" accept="image/jpeg,image/png,image/webp" @change="onArquivoFotoSelecionado" />
-        <InputText v-model="formFoto.observacao" placeholder="Observação (opcional)" />
-        <Button label="Enviar" size="small" :loading="enviandoFoto" @click="enviarFoto" />
-      </div>
-      <ul class="checklist">
-        <li v-for="f in osFotos" :key="f.id">
-          <Tag :severity="f.tipo === 'antes' ? 'info' : f.tipo === 'depois' ? 'success' : 'secondary'" :value="f.tipo" />
-          <span>{{ f.arquivo_path.split('/').pop() }}</span>
-          <span class="hint">por {{ f.enviado_por_profile?.nome }} em {{ new Date(f.enviado_em).toLocaleString('pt-BR') }}</span>
-        </li>
-      </ul>
-      <p v-if="osFotos.length === 0" class="hint">Nenhuma foto anexada ainda.</p>
-    </div>
-
-    <!-- ETAPA 5 (P1-B) — ADC-001..008: área ADICIONAIS -->
-    <div class="secao">
-      <div class="cabecalho-secao">
-        <h3>Adicionais</h3>
-        <Button v-if="podeIdentificarAdicional && !osEncerrada" label="Identificar Necessidade" icon="pi pi-plus" size="small" @click="abrirNovoAdicional" />
-      </div>
-      <p v-if="osAdicionais.length === 0" class="hint">Nenhum adicional identificado nesta OS ainda.</p>
-      <div v-for="adicional in osAdicionais" :key="adicional.id" class="cartao-adicional">
-        <div class="cabecalho-secao">
-          <div>
-            <strong>AD-{{ String(adicional.numero).padStart(3, '0') }}</strong>
-            <Tag :severity="severidadeStatusAdicional[adicional.status]" :value="adicional.status" style="margin-left:0.5rem" />
-            <span class="hint" style="margin-left:0.5rem">{{ adicional.motivo }}</span>
+    <!-- ===== CABEÇALHO-RESUMO ===== -->
+    <div class="cabecalho-os">
+      <div class="cabecalho-esquerda">
+        <div class="cabecalho-titulo-linha">
+          <Button icon="pi pi-arrow-left" text @click="router.push('/os')" />
+          <h2>OS — {{ os.veiculo?.placa }} <span v-if="os.veiculo?.prefixo">({{ os.veiculo.prefixo }})</span></h2>
+        </div>
+        <div class="cabecalho-info-grid">
+          <div class="info-bloco">
+            <span class="info-label">Cliente</span>
+            <span class="info-valor">{{ os.cliente?.nome }}</span>
           </div>
-          <div>
-            <span class="hint" style="margin-right:0.75rem">
-              Aprovado: <strong style="color:#15803d">{{ formatarMoeda(valorAdicional(adicional, 'aprovado')) }}</strong>
-              &nbsp;Rejeitado: <strong style="color:#b91c1c">{{ formatarMoeda(valorAdicional(adicional, 'rejeitado')) }}</strong>
+          <div class="info-bloco">
+            <span class="info-label">Veículo</span>
+            <span class="info-valor">{{ os.veiculo?.modelo || '—' }}</span>
+          </div>
+          <div class="info-bloco">
+            <span class="info-label">Tipo de OS</span>
+            <Tag :value="os.tipo === 'interna' ? 'Interna' : 'Externa'" :severity="os.tipo === 'interna' ? 'secondary' : 'info'" />
+          </div>
+          <div class="info-bloco">
+            <span class="info-label">Abertura</span>
+            <span class="info-valor">{{ new Date(os.data_abertura).toLocaleString('pt-BR') }}</span>
+          </div>
+          <div class="info-bloco">
+            <span class="info-label">Previsão de conclusão</span>
+            <span class="info-valor-linha">
+              <span v-if="os.previsao_conclusao" class="info-valor">{{ new Date(os.previsao_conclusao).toLocaleString('pt-BR') }}</span>
+              <span v-else class="hint">Não definida</span>
+              <Button v-if="podeDefinirPrazo && !osEncerrada" icon="pi pi-pencil" size="small" text @click="abrirPrazo" aria-label="Definir/Alterar previsão" />
             </span>
-            <Button v-if="podePrecificarAdicional && !osEncerrada" label="Incluir item" size="small" text @click="abrirIncluirItemAdicional(adicional)" />
-            <Button v-if="podeCancelarAdicional && adicional.status === 'aguardando_aprovacao'" label="Cancelar" size="small" text severity="danger" @click="abrirCancelarAdicional(adicional)" />
           </div>
         </div>
-        <table class="tabela-itens-decisao" v-if="adicional.os_adicional_itens?.length">
-          <thead>
-            <tr><th>Item</th><th>Valor</th><th>Decisão</th><th>Meio</th><th>Execução</th><th>Ação</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in adicional.os_adicional_itens" :key="item.id">
-              <td>{{ item.descricao }}<span v-if="item.peca"> — {{ item.peca.descricao }}</span> <span class="hint">({{ item.quantidade }}x)</span></td>
-              <td>{{ formatarMoeda(item.valor_total) }}</td>
-              <td><Tag :severity="tagDecisaoItemAdicional[item.status_aprovacao]" :value="item.status_aprovacao" /></td>
-              <td>{{ item.meio_aprovacao || '—' }}</td>
-              <td><Tag v-if="item.status_aprovacao === 'aprovado'" :severity="item.execucao_status === 'executado' ? 'success' : item.execucao_status === 'cancelado' ? 'danger' : 'warn'" :value="item.execucao_status" /><span v-else class="hint">—</span></td>
-              <td>
-                <template v-if="item.status_aprovacao === 'pendente' && podeDecidirAdicional">
-                  <Button label="Decidir" size="small" @click="abrirDecisaoAdicional(item)" />
-                </template>
-                <template v-else-if="item.status_aprovacao === 'aprovado' && !item.peca_id && podeMarcarExecucao && !['executado', 'cancelado'].includes(item.execucao_status)">
-                  <Button label="Executado" size="small" text @click="marcarItemAdicionalExecutado(item)" />
-                  <Button label="Dispensar" size="small" text severity="danger" @click="abrirCancelarItem(item, 'adicional')" />
-                </template>
-                <span v-else class="hint">—</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+      </div>
+
+      <div class="cabecalho-direita">
+        <Tag :severity="STATUS_OS[os.status]?.severidade" :value="STATUS_OS[os.status]?.label ?? os.status" class="status-tag-grande" />
+        <div class="cabecalho-acoes" v-if="podeTransicionar || ['aguardando_teste', 'concluida', 'liberada'].includes(os.status) || (os.status === 'concluida' && os.tipo === 'externa' && podeGerarCobranca) || os.os_origem_id">
+          <!-- ação primária: única transição não-destrutiva quando há só uma -->
+          <Button
+            v-for="t in transicoesNaoDanger"
+            :key="t.next"
+            :label="t.label"
+            size="small"
+            :class="{ 'btn-gradiente': transicoesNaoDanger.length === 1 }"
+            :outlined="transicoesNaoDanger.length > 1"
+            @click="confirmarTransicao(t)"
+          />
+          <Button v-if="os.status === 'aguardando_teste'" label="Concluir (checklist)" size="small" class="btn-gradiente" @click="concluir" />
+          <Button v-if="os.status === 'concluida'" label="Liberar" size="small" class="btn-gradiente" @click="liberar" />
+          <Button
+            v-if="os.status === 'concluida' && os.tipo === 'externa' && podeGerarCobranca"
+            label="Gerar Cobrança"
+            size="small"
+            icon="pi pi-wallet"
+            outlined
+            @click="router.push({ path: '/financeiro/cobrancas', query: { cliente_id: os.cliente.id, os_id: os.id } })"
+          />
+          <Button
+            v-if="dentroDoPrazoGarantia && podeAbrirGarantia"
+            label="Abrir Garantia"
+            size="small"
+            icon="pi pi-shield"
+            :class="{ 'btn-gradiente': os.status === 'liberada' }"
+            :outlined="os.status !== 'liberada'"
+            @click="confirmarAbrirGarantia"
+          />
+          <!-- destrutiva: sempre separada, nunca disputa peso visual com a primária -->
+          <Button v-if="transicaoDanger" :label="transicaoDanger.label" size="small" severity="danger" outlined @click="confirmarTransicao(transicaoDanger)" />
+          <!-- ETAPA 6 (P1-C) — item 4/5, peso mínimo (link), independente do status -->
+          <Button
+            v-if="['concluida', 'liberada'].includes(os.status)"
+            label="Relatório de Encerramento"
+            size="small"
+            icon="pi pi-file"
+            text
+            @click="router.push('/os/' + osId + '/relatorio-encerramento')"
+          />
+          <Button
+            v-if="os.os_origem_id"
+            label="Relatório de Garantia"
+            size="small"
+            icon="pi pi-shield"
+            text
+            @click="router.push('/os/' + osId + '/relatorio-garantia')"
+          />
+        </div>
       </div>
     </div>
+
+    <!-- ===== BARRA DE ETAPAS ===== -->
+    <div v-if="mostrarBarraEtapas" class="barra-etapas">
+      <template v-for="(etapa, i) in ETAPAS_OS" :key="etapa.status">
+        <div class="etapa" :class="{ 'etapa-concluida': i < indiceEtapaAtual, 'etapa-atual': i === indiceEtapaAtual }">
+          <div class="etapa-icone"><i :class="i < indiceEtapaAtual ? 'pi pi-check' : etapa.icone"></i></div>
+          <span class="etapa-label">{{ etapa.label }}</span>
+          <Tag v-if="i === indiceEtapaAtual && emAguardandoAprovacao" severity="warn" value="aguardando aprovação" class="etapa-selo" />
+        </div>
+        <div v-if="i < ETAPAS_OS.length - 1" class="etapa-linha" :class="{ 'etapa-linha-concluida': i < indiceEtapaAtual }"></div>
+      </template>
+    </div>
+    <div v-else-if="os.status === 'cancelada'" class="badge-terminal badge-cancelada">
+      <i class="pi pi-times-circle"></i> OS cancelada
+    </div>
+
+    <!-- ===== ABAS ===== -->
+    <Tabs v-model:value="tabAtiva" class="tabs-os">
+      <TabList>
+        <Tab value="geral"><i class="pi pi-th-large" style="margin-right:6px"></i>Visão Geral</Tab>
+        <Tab value="execucao"><i class="pi pi-wrench" style="margin-right:6px"></i>Execução</Tab>
+        <Tab value="pecas"><i class="pi pi-box" style="margin-right:6px"></i>Peças</Tab>
+        <Tab value="fotos"><i class="pi pi-image" style="margin-right:6px"></i>Fotos</Tab>
+        <Tab value="adicionais"><i class="pi pi-plus-circle" style="margin-right:6px"></i>Adicionais</Tab>
+        <Tab v-if="podeVerHistorico" value="historico"><i class="pi pi-history" style="margin-right:6px"></i>Histórico</Tab>
+      </TabList>
+      <TabPanels>
+
+        <!-- ---------- VISÃO GERAL ---------- -->
+        <TabPanel value="geral">
+          <div v-if="osOrigem || osGarantias.length > 0 || dentroDoPrazoGarantia" class="card">
+            <h3>Garantia</h3>
+            <p v-if="osOrigem" class="hint">
+              Esta OS é garantia da
+              <router-link :to="'/os/' + osOrigem.id">OS {{ osOrigem.veiculo?.placa }}<span v-if="osOrigem.veiculo?.prefixo"> ({{ osOrigem.veiculo.prefixo }})</span></router-link>
+              — sem cobrança ao cliente.
+            </p>
+            <div v-if="osGarantias.length > 0" class="hint">
+              Garantia(s) aberta(s) a partir desta OS:
+              <router-link v-for="g in osGarantias" :key="g.id" :to="'/os/' + g.id" style="margin-right: 0.5rem">
+                {{ g.veiculo?.placa }} ({{ rotuloStatus(g.status) }})
+              </router-link>
+            </div>
+            <p v-if="dentroDoPrazoGarantia" class="hint">Garantia até {{ prazoGarantiaAte.toLocaleDateString('pt-BR') }}.</p>
+          </div>
+
+          <div v-if="os.tipo === 'interna' && os.custo_calculado_em" class="card">
+            <h3>Custo Interno</h3>
+            <p class="hint">
+              Peças {{ formatarMoeda(os.custo_pecas) }} + mão de obra {{ formatarMoeda(os.custo_mao_obra) }}
+              ({{ os.horas_apontadas_total }}h × {{ formatarMoeda(os.custo_hora_aplicado) }}) = <strong>{{ formatarMoeda(os.custo_total) }}</strong>
+              — sem cobrança (cliente interno).
+            </p>
+          </div>
+
+          <div class="card">
+            <h3>Previsão de Conclusão</h3>
+            <p v-if="os.previsao_conclusao">{{ new Date(os.previsao_conclusao).toLocaleString('pt-BR') }}</p>
+            <p v-else class="hint">Não definida.</p>
+            <Button v-if="podeDefinirPrazo && !osEncerrada" label="Definir previsão" icon="pi pi-calendar" size="small" outlined @click="abrirPrazo" />
+          </div>
+
+          <div class="card">
+            <h3>Checklist Técnico</h3>
+            <div v-if="!os.checklist_template_id && podeTransicionar" class="form-linha">
+              <Select :options="checklistTemplates" optionLabel="nome" optionValue="id" placeholder="Definir checklist" @update:modelValue="definirChecklist" />
+            </div>
+            <div v-else-if="!os.checklist_template_id" class="estado-vazio-card">
+              <i class="pi pi-list-check"></i>
+              <div>
+                <strong>Nenhum checklist definido</strong>
+                <p>Um encarregado ou administrador técnico precisa vincular um checklist a esta OS.</p>
+              </div>
+            </div>
+            <ul v-else class="checklist">
+              <li v-for="item in checklistItens" :key="item.id">
+                <Checkbox
+                  :modelValue="respostaDoItem(item.id)?.ok ?? false"
+                  binary
+                  :disabled="!podeResponderChecklist"
+                  @update:modelValue="(v) => alternarResposta(item, v)"
+                />
+                <span>{{ item.descricao }}</span>
+                <Tag v-if="item.obrigatorio" severity="danger" value="obrigatório" />
+              </li>
+            </ul>
+          </div>
+
+          <div class="card" v-if="os.orcamento_id && itensMaoDeObra.length > 0">
+            <h3>Mão de Obra Prevista</h3>
+            <p class="card-subtitulo">Vinculada ao orçamento desta OS — itens sem peça não têm sinal automático de execução.</p>
+            <ul class="checklist">
+              <li v-for="item in itensMaoDeObra" :key="item.id">
+                <span>{{ item.descricao }} ({{ item.quantidade }})</span>
+                <Tag :severity="item.execucao_status === 'executado' ? 'success' : item.execucao_status === 'cancelado' ? 'danger' : 'warn'" :value="item.execucao_status" />
+                <template v-if="podeMarcarExecucao && !['executado', 'cancelado'].includes(item.execucao_status)">
+                  <Button label="Marcar executado" size="small" text @click="marcarItemExecutado(item)" />
+                  <Button label="Dispensar (cancelar)" size="small" text severity="danger" @click="abrirCancelarItem(item)" />
+                </template>
+              </li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <h3>Resumo da OS</h3>
+            <p class="card-subtitulo">Contagem operacional a partir do que já foi registrado nesta OS.</p>
+            <div class="resumo-grid">
+              <div class="resumo-item">
+                <span class="resumo-valor">{{ resumoOS.execucoesAtivas }}</span>
+                <span class="resumo-label">apontamento(s) em andamento</span>
+              </div>
+              <div class="resumo-item">
+                <span class="resumo-valor">{{ resumoOS.totalPecasQtd }}</span>
+                <span class="resumo-label">movimentação(ões) de peça</span>
+              </div>
+              <div class="resumo-item">
+                <span class="resumo-valor">{{ formatarMoeda(resumoOS.totalPecasValor) }}</span>
+                <span class="resumo-label">custo de peças baixadas</span>
+              </div>
+              <div class="resumo-item">
+                <span class="resumo-valor">{{ resumoOS.totalFotos }}</span>
+                <span class="resumo-label">foto(s) anexada(s)</span>
+              </div>
+              <div class="resumo-item">
+                <span class="resumo-valor">{{ resumoOS.adicionaisAbertos }}/{{ resumoOS.adicionaisTotal }}</span>
+                <span class="resumo-label">adicional(is) aguardando decisão</span>
+              </div>
+            </div>
+          </div>
+        </TabPanel>
+
+        <!-- ---------- EXECUÇÃO ---------- -->
+        <TabPanel value="execucao">
+          <div class="card">
+            <h3>Apontamento de Execução</h3>
+            <div class="form-linha" v-if="podeApontar">
+              <Select v-model="formApontamento.etapa" :options="etapas" placeholder="Etapa" />
+              <InputText v-model="formApontamento.observacao" placeholder="Observação (opcional)" />
+              <Button label="Iniciar" size="small" @click="iniciarApontamento" />
+            </div>
+            <DataTable :value="executores" dataKey="id" size="small">
+              <template #empty>
+                <div class="estado-vazio-card">
+                  <i class="pi pi-clock"></i>
+                  <div>
+                    <strong>Nenhum apontamento registrado</strong>
+                    <p>Inicie um apontamento acima para começar a registrar o tempo de execução.</p>
+                  </div>
+                </div>
+              </template>
+              <Column header="Executor">
+                <template #body="{ data }">
+                  {{ data.usuario?.nome }}
+                  <Tag v-if="data.ativo === false" severity="danger" value="removido" style="margin-left:0.3rem;font-size:0.65rem" />
+                </template>
+              </Column>
+              <Column field="etapa" header="Etapa" />
+              <Column header="Início"><template #body="{ data }">{{ new Date(data.inicio).toLocaleString('pt-BR') }}</template></Column>
+              <Column header="Fim">
+                <template #body="{ data }">
+                  <span v-if="data.fim">{{ new Date(data.fim).toLocaleString('pt-BR') }}</span>
+                  <!-- CON-007 (ETAPA 4 P1-A): encerrar só disponível enquanto a OS não está fechada -->
+                  <Button v-else-if="data.usuario_id === auth.profile.id && !osEncerrada" label="Encerrar" size="small" text @click="encerrarApontamento(data)" />
+                </template>
+              </Column>
+              <Column field="observacao" header="Observação" />
+              <!-- ETAPA 6 (P1-C) — item 8 (EXE-003): encerrar participação, nunca apagar histórico -->
+              <Column header="">
+                <template #body="{ data }">
+                  <Button v-if="podeRemoverExecutor && data.ativo !== false && !osEncerrada" label="Remover" size="small" text severity="danger" @click="abrirRemoverExecutor(data)" />
+                </template>
+              </Column>
+            </DataTable>
+            <p v-if="osEncerrada" class="hint">OS encerrada — apontamentos não são mais editáveis diretamente (correção formal auditada disponível ao encarregado/admin técnico).</p>
+          </div>
+        </TabPanel>
+
+        <!-- ---------- PEÇAS ---------- -->
+        <TabPanel value="pecas">
+          <div class="card">
+            <h3>Peças Utilizadas</h3>
+            <!-- EST-004/GAR-005 (P1-A) + item 8 (P1-B, adicionais): quando existe item
+                 elegível (orçamento, garantia OU adicional aprovado), a baixa exige
+                 escolher o ITEM — a peça é derivada dele, nunca uma peça livre fora
+                 do escopo aprovado. A origem (orçamento x adicional) fica sempre
+                 identificável no ledger (orcamento_item_id x os_adicional_item_id). -->
+            <div class="form-linha" v-if="podeBaixarPeca && podeMovimentarEstoque && itensParaBaixa.length > 0">
+              <Select
+                v-model="formBaixa.chave"
+                :options="itensParaBaixa"
+                optionLabel="descricao"
+                optionValue="chave"
+                filter
+                placeholder="Item aprovado (orçamento/adicional/garantia)"
+                @update:modelValue="selecionouItemBaixa"
+              >
+                <template #option="{ option }">
+                  <Tag v-if="option.origem === 'adicional'" severity="warn" value="adicional" style="margin-right:0.3rem;font-size:0.65rem" />
+                  {{ option.descricao }} — {{ option.peca?.descricao }} (restam {{ option.restante }} de {{ option.quantidade }})
+                </template>
+              </Select>
+              <InputNumber v-model="formBaixa.quantidade" :minFractionDigits="0" :maxFractionDigits="3" placeholder="Qtde" />
+              <Button label="Baixar" size="small" @click="baixarPeca" :disabled="!formBaixa.chave" />
+            </div>
+            <p v-else-if="podeBaixarPeca && podeMovimentarEstoque && !podeBaixarLivre" class="hint">
+              Nenhum item de peça aprovado (orçamento/adicional) disponível para baixa nesta OS.
+            </p>
+            <div class="form-linha" v-else-if="podeBaixarPeca && podeMovimentarEstoque">
+              <Select v-model="formBaixa.peca_id" :options="pecas" optionLabel="descricao" optionValue="id" filter placeholder="Peça" />
+              <InputNumber v-model="formBaixa.quantidade" :minFractionDigits="0" :maxFractionDigits="3" placeholder="Qtde" />
+              <Button label="Baixar" size="small" @click="baixarPeca" />
+            </div>
+            <p v-else-if="podeBaixarPeca" class="hint">Baixa de peças só é permitida com a OS em diagnóstico ou execução.</p>
+            <DataTable :value="movimentos" dataKey="id" size="small">
+              <template #empty>
+                <div class="estado-vazio-card">
+                  <i class="pi pi-box"></i>
+                  <div>
+                    <strong>Nenhuma peça baixada</strong>
+                    <p>Peças utilizadas nesta OS aparecerão aqui assim que forem baixadas do estoque.</p>
+                  </div>
+                </div>
+              </template>
+              <Column header="Peça"><template #body="{ data }">{{ data.peca?.descricao }} ({{ data.peca?.sku }})</template></Column>
+              <Column field="quantidade" header="Qtde" />
+              <Column header="Origem">
+                <template #body="{ data }">
+                  <Tag v-if="data.os_adicional_item_id" severity="warn" value="adicional" />
+                  <Tag v-else-if="data.orcamento_item_id" severity="info" value="orçamento" />
+                  <span v-else class="hint">avulsa</span>
+                </template>
+              </Column>
+              <Column header="Custo Unit."><template #body="{ data }">{{ (data.custo_unitario ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }}</template></Column>
+              <Column header="Data"><template #body="{ data }">{{ new Date(data.criado_em).toLocaleString('pt-BR') }}</template></Column>
+            </DataTable>
+          </div>
+        </TabPanel>
+
+        <!-- ---------- FOTOS ---------- -->
+        <TabPanel value="fotos">
+          <div class="card">
+            <h3>Fotos</h3>
+            <p v-if="checklistTemplateAtual" class="hint">
+              Este tipo de serviço exige:
+              <Tag :severity="checklistTemplateAtual.foto_antes_obrigatoria ? 'danger' : 'secondary'" :value="checklistTemplateAtual.foto_antes_obrigatoria ? 'foto antes obrigatória' : 'foto antes opcional'" style="margin-right:0.3rem" />
+              <Tag :severity="checklistTemplateAtual.foto_depois_obrigatoria ? 'danger' : 'secondary'" :value="checklistTemplateAtual.foto_depois_obrigatoria ? 'foto depois obrigatória' : 'foto depois opcional'" />
+            </p>
+            <div class="form-linha" v-if="podeAnexarFoto && !osEncerrada">
+              <Select v-model="formFoto.tipo" :options="[{ label: 'Antes', value: 'antes' }, { label: 'Depois', value: 'depois' }, { label: 'Outro', value: 'outro' }]" optionLabel="label" optionValue="value" />
+              <input type="file" accept="image/jpeg,image/png,image/webp" @change="onArquivoFotoSelecionado" />
+              <InputText v-model="formFoto.observacao" placeholder="Observação (opcional)" />
+              <Button label="Enviar" size="small" :loading="enviandoFoto" @click="enviarFoto" />
+            </div>
+            <ul v-if="osFotos.length > 0" class="checklist">
+              <li v-for="f in osFotos" :key="f.id">
+                <Tag :severity="f.tipo === 'antes' ? 'info' : f.tipo === 'depois' ? 'success' : 'secondary'" :value="f.tipo" />
+                <span>{{ f.arquivo_path.split('/').pop() }}</span>
+                <span class="hint">por {{ f.enviado_por_profile?.nome }} em {{ new Date(f.enviado_em).toLocaleString('pt-BR') }}</span>
+              </li>
+            </ul>
+            <div v-else class="estado-vazio-card">
+              <i class="pi pi-image"></i>
+              <div>
+                <strong>Nenhuma foto anexada</strong>
+                <p>Adicione imagens de antes, durante ou depois para compor o histórico visual da OS.</p>
+              </div>
+            </div>
+          </div>
+        </TabPanel>
+
+        <!-- ---------- ADICIONAIS ---------- -->
+        <TabPanel value="adicionais">
+          <div class="card">
+            <div class="cabecalho-secao">
+              <h3 style="margin:0">Adicionais</h3>
+              <Button v-if="podeIdentificarAdicional && !osEncerrada" label="Identificar Necessidade" icon="pi pi-plus" size="small" @click="abrirNovoAdicional" />
+            </div>
+            <div v-if="osAdicionais.length === 0" class="estado-vazio-card">
+              <i class="pi pi-plus-circle"></i>
+              <div>
+                <strong>Nenhum adicional identificado</strong>
+                <p>Necessidades identificadas durante a execução aparecerão aqui, aguardando precificação e decisão do cliente.</p>
+              </div>
+            </div>
+            <div v-for="adicional in osAdicionais" :key="adicional.id" class="cartao-adicional">
+              <div class="cabecalho-secao">
+                <div>
+                  <strong>AD-{{ String(adicional.numero).padStart(3, '0') }}</strong>
+                  <Tag :severity="severidadeStatusAdicional[adicional.status]" :value="adicional.status" style="margin-left:0.5rem" />
+                  <span class="hint" style="margin-left:0.5rem">{{ adicional.motivo }}</span>
+                </div>
+                <div>
+                  <span class="hint" style="margin-right:0.75rem">
+                    Aprovado: <strong style="color:#4ade80">{{ formatarMoeda(valorAdicional(adicional, 'aprovado')) }}</strong>
+                    &nbsp;Rejeitado: <strong style="color:#f87171">{{ formatarMoeda(valorAdicional(adicional, 'rejeitado')) }}</strong>
+                  </span>
+                  <Button v-if="podePrecificarAdicional && !osEncerrada" label="Incluir item" size="small" text @click="abrirIncluirItemAdicional(adicional)" />
+                  <Button v-if="podeCancelarAdicional && adicional.status === 'aguardando_aprovacao'" label="Cancelar" size="small" text severity="danger" @click="abrirCancelarAdicional(adicional)" />
+                </div>
+              </div>
+              <table class="tabela-itens-decisao" v-if="adicional.os_adicional_itens?.length">
+                <thead>
+                  <tr><th>Item</th><th>Valor</th><th>Decisão</th><th>Meio</th><th>Execução</th><th>Ação</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in adicional.os_adicional_itens" :key="item.id">
+                    <td>{{ item.descricao }}<span v-if="item.peca"> — {{ item.peca.descricao }}</span> <span class="hint">({{ item.quantidade }}x)</span></td>
+                    <td>{{ formatarMoeda(item.valor_total) }}</td>
+                    <td><Tag :severity="tagDecisaoItemAdicional[item.status_aprovacao]" :value="item.status_aprovacao" /></td>
+                    <td>{{ item.meio_aprovacao || '—' }}</td>
+                    <td><Tag v-if="item.status_aprovacao === 'aprovado'" :severity="item.execucao_status === 'executado' ? 'success' : item.execucao_status === 'cancelado' ? 'danger' : 'warn'" :value="item.execucao_status" /><span v-else class="hint">—</span></td>
+                    <td>
+                      <template v-if="item.status_aprovacao === 'pendente' && podeDecidirAdicional">
+                        <Button label="Decidir" size="small" @click="abrirDecisaoAdicional(item)" />
+                      </template>
+                      <template v-else-if="item.status_aprovacao === 'aprovado' && !item.peca_id && podeMarcarExecucao && !['executado', 'cancelado'].includes(item.execucao_status)">
+                        <Button label="Executado" size="small" text @click="marcarItemAdicionalExecutado(item)" />
+                        <Button label="Dispensar" size="small" text severity="danger" @click="abrirCancelarItem(item, 'adicional')" />
+                      </template>
+                      <span v-else class="hint">—</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </TabPanel>
+
+        <!-- ---------- HISTÓRICO ---------- -->
+        <TabPanel v-if="podeVerHistorico" value="historico">
+          <div class="card">
+            <h3>Histórico</h3>
+            <p class="card-subtitulo">Linha do tempo com mudanças de status, apontamentos, fotos, adicionais e garantias desta OS.</p>
+            <div v-if="eventosHistorico.length === 0" class="estado-vazio-card">
+              <i class="pi pi-history"></i>
+              <div>
+                <strong>Sem eventos registrados</strong>
+                <p>Assim que houver movimentação nesta OS, ela aparecerá aqui.</p>
+              </div>
+            </div>
+            <ul v-else class="timeline">
+              <li v-for="(ev, i) in eventosHistorico" :key="i" class="timeline-item">
+                <div class="timeline-icone"><i :class="ev.icone"></i></div>
+                <div class="timeline-corpo">
+                  <span class="timeline-titulo">{{ ev.titulo }}</span>
+                  <span v-if="ev.detalhe" class="hint">{{ ev.detalhe }}</span>
+                  <span class="timeline-data">{{ new Date(ev.data).toLocaleString('pt-BR') }}</span>
+                </div>
+              </li>
+            </ul>
+          </div>
+        </TabPanel>
+
+      </TabPanels>
+    </Tabs>
+
+    <!-- ===== DIÁLOGOS (inalterados na lógica — só reposicionados) ===== -->
 
     <!-- GAR-005 (ETAPA 4 P1-A): escolher itens da própria OS ao abrir uma garantia -->
     <Dialog v-model:visible="dialogoGarantiaAberto" modal header="Abrir Garantia — vincular itens originais" style="width: 480px">
@@ -1172,23 +1463,279 @@ watch(osId, carregar, { immediate: true })
 </template>
 
 <style scoped>
-.cabecalho {
+.estado-carregando {
+  color: var(--text-muted);
+  padding: 40px 0;
+}
+
+/* ===== Cabeçalho ===== */
+.cabecalho-os {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.5rem;
-}
-.secao {
-  margin-top: 1.5rem;
-  padding-top: 1rem;
-  border-top: 1px solid #e5e7eb;
-}
-.acoes-status {
-  display: flex;
-  gap: 0.5rem;
+  align-items: flex-start;
+  gap: 20px;
   flex-wrap: wrap;
-  margin: 1rem 0;
+  margin-bottom: 18px;
 }
+.cabecalho-titulo-linha {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.cabecalho-titulo-linha h2 {
+  margin: 0;
+  font-size: 1.3rem;
+  color: var(--text-heading);
+}
+.cabecalho-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px 24px;
+  max-width: 640px;
+}
+.info-bloco {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.info-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.info-valor {
+  font-size: 13.5px;
+  color: var(--text-body);
+  font-weight: 600;
+}
+.info-valor-linha {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.cabecalho-direita {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+}
+.status-tag-grande {
+  font-size: 0.95rem;
+  padding: 6px 14px;
+}
+.cabecalho-acoes {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.btn-gradiente :deep(.p-button) {
+  background: var(--accent-gradient);
+  border: none;
+}
+
+/* ===== Barra de etapas ===== */
+.barra-etapas {
+  display: flex;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border-panel);
+  border-radius: var(--card-radius);
+  padding: 18px 20px;
+  margin-bottom: 18px;
+  overflow-x: auto;
+}
+.etapa {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 84px;
+  position: relative;
+}
+.etapa-icone {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-hover);
+  border: 2px solid var(--border-panel);
+  color: var(--text-faint);
+  font-size: 14px;
+}
+.etapa-concluida .etapa-icone {
+  background: var(--success-bg);
+  border-color: var(--success);
+  color: var(--success);
+}
+.etapa-atual .etapa-icone {
+  background: var(--accent-soft-bg);
+  border-color: var(--accent-1);
+  color: var(--accent-text);
+}
+.etapa-label {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.etapa-atual .etapa-label {
+  color: var(--text-heading);
+  font-weight: 700;
+}
+.etapa-selo {
+  position: absolute;
+  top: -8px;
+  right: -12px;
+  font-size: 0.6rem;
+}
+.etapa-linha {
+  flex: 1;
+  height: 2px;
+  background: var(--border-panel);
+  margin: 0 4px;
+  margin-bottom: 22px;
+  min-width: 20px;
+}
+.etapa-linha-concluida {
+  background: var(--success);
+}
+.badge-terminal {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: var(--card-radius);
+  font-weight: 700;
+  font-size: 13.5px;
+  margin-bottom: 18px;
+}
+.badge-cancelada {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+/* ===== Abas ===== */
+.tabs-os {
+  margin-top: 4px;
+}
+
+/* ===== Cards (mesmo padrão de DashboardView.vue) ===== */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border-panel);
+  border-radius: var(--card-radius);
+  padding: 20px;
+  margin-bottom: 14px;
+}
+.card h3 {
+  margin: 0 0 14px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+.card-subtitulo {
+  margin: -8px 0 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ===== Estado vazio (dentro de card) ===== */
+.estado-vazio-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 4px;
+  color: var(--text-faint);
+}
+.estado-vazio-card i {
+  font-size: 22px;
+  margin-top: 2px;
+}
+.estado-vazio-card strong {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+.estado-vazio-card p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+/* ===== Resumo (grid de números) ===== */
+.resumo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 14px;
+}
+.resumo-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.resumo-valor {
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--text-heading);
+}
+.resumo-label {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+/* ===== Histórico (timeline) ===== */
+.timeline {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+.timeline-item {
+  display: flex;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-row);
+}
+.timeline-item:last-child {
+  border-bottom: none;
+}
+.timeline-icone {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--surface-hover);
+  color: var(--accent-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 12px;
+}
+.timeline-corpo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.timeline-titulo {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-body);
+}
+.timeline-data {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* ===== Blocos reaproveitados do arquivo original ===== */
 .form-linha {
   display: flex;
   gap: 0.5rem;
@@ -1209,7 +1756,7 @@ watch(osId, carregar, { immediate: true })
   gap: 0.5rem;
 }
 .hint {
-  color: #6b7280;
+  color: var(--text-muted);
   font-size: 0.85rem;
 }
 .form-campo {
@@ -1220,7 +1767,7 @@ watch(osId, carregar, { immediate: true })
 }
 .form-campo label {
   font-size: 0.8rem;
-  color: #4b5563;
+  color: var(--text-muted);
 }
 .cabecalho-secao {
   display: flex;
@@ -1228,12 +1775,14 @@ watch(osId, carregar, { immediate: true })
   align-items: center;
   flex-wrap: wrap;
   gap: 0.5rem;
+  margin-bottom: 10px;
 }
 .cartao-adicional {
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border: 1px solid var(--border-panel);
+  border-radius: 10px;
   padding: 0.75rem 1rem;
   margin-top: 0.75rem;
+  background: var(--surface-hover);
 }
 .tabela-itens-decisao {
   width: 100%;
@@ -1244,8 +1793,40 @@ watch(osId, carregar, { immediate: true })
 .tabela-itens-decisao td {
   text-align: left;
   padding: 0.4rem 0.5rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border-row);
   font-size: 0.85rem;
   vertical-align: middle;
+  color: var(--text-body);
+}
+.tabela-itens-decisao th {
+  color: var(--text-table-header);
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+/* ===== Responsividade ===== */
+@media (max-width: 760px) {
+  .cabecalho-os {
+    flex-direction: column;
+  }
+  .cabecalho-direita {
+    align-items: flex-start;
+    width: 100%;
+  }
+  .cabecalho-acoes {
+    justify-content: flex-start;
+    width: 100%;
+  }
+  .barra-etapas {
+    justify-content: flex-start;
+  }
+  .form-linha {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .form-linha > * {
+    width: 100%;
+  }
 }
 </style>
