@@ -431,3 +431,22 @@ nav {
   }
 }
 </style>
+
+<!-- BUG-PDF-EXPORT-02 (item 5/8) — bloco SEM `scoped` de propósito. O banner
+     "Invalid PrimeUI License" (`#p-license-host`, injetado direto em
+     document.body pelo license-manager do PrimeVue, fora de qualquer árvore
+     Vue) e o Toast (`.p-toast`, declarado em App.vue e teleportado pra
+     document.body) nunca recebem o atributo `data-v-*` de um `<style
+     scoped>` daqui — não têm como ser alcançados por CSS com escopo, só por
+     regra global. Isso esconde os dois SÓ na impressão (mesma categoria de
+     já esconder sidebar/topbar acima); não desliga nem mascara a licença do
+     PrimeVue na tela do app — decisão explícita de não mexer nisso nesta
+     tarefa. -->
+<style>
+@media print {
+  #p-license-host,
+  .p-toast {
+    display: none !important;
+  }
+}
+</style>

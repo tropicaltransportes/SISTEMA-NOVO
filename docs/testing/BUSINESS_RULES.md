@@ -721,6 +721,18 @@ documento da versão 1 mesmo depois de existir versão 2+. A renderização em
 PDF em si acontece no frontend, a partir destes dados do backend. Ver
 `supabase/migrations/20260814111000_p1c_relatorios.sql`.
 
+**Nota de implementação (BUG-PDF-EXPORT-02, 2026-08-18):** o mecanismo de
+emissão passou a ser dois caminhos distintos, ambos a partir dos mesmos
+dados de `rpc_dados_pdf_orcamento` — nenhum dos dois recalcula nada:
+1. **Imprimir** — continua `window.print()` (impressão do navegador).
+2. **Baixar PDF** — geração vetorial direta em `frontend/src/lib/pdfOrcamento.js`
+   (jsPDF + jspdf-autotable), sem depender do diálogo de impressão do
+   navegador — por isso não herda URL, data/hora do navegador, título da
+   aba nem numeração de página que o navegador injetaria sozinho nesse
+   mecanismo. Não muda o status DEFINIDA desta regra nem o conteúdo exigido
+   acima — só documenta o segundo mecanismo de emissão. Ver
+   `docs/testing/BUG_PDF_EXPORT_02_REPORT.md`.
+
 ## BR-042 — Cancelamento formal de item aprovado (orçamento e adicional)
 **Status:** DEFINIDA (ETAPA 6/P1-C, item 11 — estende BR-009/BR-026)
 

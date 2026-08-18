@@ -10,7 +10,14 @@
 // ETAPA UX-PDF-ORCAMENTO-01 — redesign comercial (layout apenas; nenhum
 // cálculo, regra de negócio, aprovação, versionamento ou permissão foi
 // alterado). Ver docs/testing/UX_PDF_ORCAMENTO_01_REPORT.md.
-import { ref, computed } from 'vue'
+//
+// BUG-PDF-EXPORT-02 — "Imprimir" (window.print(), abre o diálogo do
+// navegador) e "Baixar PDF" (gerado direto em JS via gerarPdfOrcamento,
+// vetorial, nunca passa pelo mecanismo de impressão do navegador) viraram
+// duas ações distintas. O "Baixar PDF" nunca herda URL/data-hora/título de
+// aba/numeração que o navegador injeta sozinho, porque não usa esse
+// mecanismo — ver docs/testing/BUG_PDF_EXPORT_02_REPORT.md.
+import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { supabase } from '../../lib/supabaseClient'
 import { useToast } from 'primevue/usetoast'
@@ -18,6 +25,7 @@ import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import { STATUS_ORCAMENTO } from '../../constants/statusVisual'
 import BrandLogo from '../../components/brand/BrandLogo.vue'
+import { gerarPdfOrcamento, nomeArquivoOrcamento } from '../../lib/pdfOrcamento.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -41,6 +49,7 @@ function formatarDataSomente(v) {
 async function carregar() {
   carregando.value = true
   erro.value = false
+  d.value = null
   const { data, error } = await supabase.rpc('rpc_dados_pdf_orcamento', { p_orcamento_id: orcamentoId.value })
   if (error) {
     erro.value = true
@@ -51,7 +60,15 @@ async function carregar() {
   d.value = data
   carregando.value = false
 }
-carregar()
+// Achado real durante a verificação de BUG-PDF-EXPORT-02 (2026-08-18):
+// bug pré-existente, mesma causa raiz já corrigida em OrdemServicoDetalhe.vue
+// — `carregar()` sendo chamado só uma vez no setup nunca reagia a navegar
+// de um /orcamentos/:id/pdf pra outro via router.push (Vue Router reusa a
+// mesma instância do componente quando o :id muda mas a rota é igual), então
+// a tela continuava mostrando os dados do orçamento anterior com a URL já
+// apontando pro novo — risco real de baixar/imprimir o PDF errado sob o
+// nome do orçamento certo. `watch` reativo ao :id corrige na raiz.
+watch(orcamentoId, carregar, { immediate: true })
 
 // BUG-PDF-PRINT-01 — CAUSA REAL: `@click="window.print()"` direto no
 // template nunca funcionava no build de produção. O compilador do Vue
@@ -79,6 +96,29 @@ function imprimir() {
       summary: 'Não foi possível abrir a impressão. Tente novamente.',
       life: 6000,
     })
+  }
+}
+
+// BUG-PDF-EXPORT-02 — geração vetorial direta (jsPDF), sem depender do
+// diálogo de impressão do navegador. `gerarPdfOrcamento` só desenha a
+// partir dos mesmos dados já carregados em `d` (nenhuma chamada nova à
+// RPC, nenhum recálculo).
+const baixandoPdf = ref(false)
+async function baixarPdf() {
+  if (!d.value) return
+  baixandoPdf.value = true
+  try {
+    const doc = await gerarPdfOrcamento(d.value)
+    doc.save(nomeArquivoOrcamento(d.value))
+  } catch (e) {
+    console.error('Falha ao gerar o PDF do orçamento:', e)
+    toast.add({
+      severity: 'error',
+      summary: 'Não foi possível gerar o PDF. Tente novamente.',
+      life: 6000,
+    })
+  } finally {
+    baixandoPdf.value = false
   }
 }
 
@@ -114,15 +154,26 @@ const linhasEmpresa = computed(() => {
   <div class="pagina-relatorio">
     <div class="acoes-topo no-print">
       <Button icon="pi pi-arrow-left" text @click="router.push('/orcamentos')" />
-      <Button
-        label="Imprimir / PDF"
-        icon="pi pi-print"
-        size="small"
-        class="btn-gradiente"
-        :disabled="carregando || erro || !d"
-        :loading="carregando"
-        @click="imprimir"
-      />
+      <div class="acoes-topo-direita">
+        <Button
+          label="Imprimir"
+          icon="pi pi-print"
+          size="small"
+          severity="secondary"
+          outlined
+          :disabled="carregando || erro || !d"
+          @click="imprimir"
+        />
+        <Button
+          label="Baixar PDF"
+          icon="pi pi-download"
+          size="small"
+          class="btn-gradiente"
+          :disabled="carregando || erro || !d"
+          :loading="baixandoPdf"
+          @click="baixarPdf"
+        />
+      </div>
     </div>
 
     <div v-if="carregando" class="documento-papel documento-estado">Carregando...</div>
@@ -248,9 +299,15 @@ const linhasEmpresa = computed(() => {
       </div>
 
       <footer class="doc-rodape">
-        <p class="doc-rodape-marca">{{ linhasEmpresa[0] }}<span v-if="linhasEmpresa[1]"> — {{ linhasEmpresa[1] }}</span></p>
-        <p class="doc-rodape-frase">Estamos à disposição para esclarecimentos.</p>
-        <p class="doc-rodape-identificacao">Documento emitido eletronicamente • {{ d.orcamento.numero_legivel }} • Versão {{ d.orcamento.versao }}</p>
+        <!-- BUG-PDF-EXPORT-02 item 6 — rodapé simplificado, mesma estrutura
+             do PDF vetorial gerado por gerarPdfOrcamento (lib/pdfOrcamento.js),
+             pra tela/impressão/download parecerem o mesmo documento. Removida
+             a frase "Estamos à disposição..." (conteúdo redundante). Nomes
+             vêm de d.empresa.nome (dado real), nunca hardcoded. -->
+        <p class="doc-rodape-marca">{{ linhasEmpresa[0] }}</p>
+        <p class="doc-rodape-frase" v-if="linhasEmpresa[1]">{{ linhasEmpresa[1] }}</p>
+        <p class="doc-rodape-identificacao">Documento emitido eletronicamente</p>
+        <p class="doc-rodape-identificacao">{{ d.orcamento.numero_legivel }} • Versão {{ d.orcamento.versao }}</p>
       </footer>
     </div>
   </div>
@@ -264,6 +321,10 @@ const linhasEmpresa = computed(() => {
   display: flex;
   justify-content: space-between;
   margin-bottom: 1rem;
+}
+.acoes-topo-direita {
+  display: flex;
+  gap: 8px;
 }
 .btn-gradiente :deep(.p-button) {
   background: var(--accent-gradient);
@@ -281,7 +342,9 @@ const linhasEmpresa = computed(() => {
   color: #1f2430;
   border-radius: 14px;
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
-  padding: 40px 48px;
+  /* BUG-PDF-EXPORT-02 item 4: era 40px 48px — reduzido pra encolher a
+     margem em branco ao redor do conteúdo sem apertar a leitura. */
+  padding: 32px 40px;
   overflow: hidden;
 }
 .documento-estado {
@@ -318,9 +381,9 @@ const linhasEmpresa = computed(() => {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  padding-bottom: 18px;
+  padding-bottom: 14px;
   border-bottom: 2px solid var(--brand-branco-gelo);
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 }
 .doc-marca {
   display: flex;
@@ -364,7 +427,7 @@ const linhasEmpresa = computed(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 22px;
+  margin-bottom: 18px;
 }
 .doc-emitido {
   font-size: 12.5px;
@@ -375,7 +438,7 @@ const linhasEmpresa = computed(() => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 20px;
-  margin-bottom: 26px;
+  margin-bottom: 20px;
   break-inside: avoid;
   page-break-inside: avoid;
 }
@@ -403,7 +466,7 @@ const linhasEmpresa = computed(() => {
 }
 
 .doc-secao-itens {
-  margin-bottom: 22px;
+  margin-bottom: 18px;
   break-inside: avoid;
   page-break-inside: avoid;
 }
@@ -460,8 +523,8 @@ const linhasEmpresa = computed(() => {
 
 .doc-resumo {
   margin-left: auto;
-  max-width: 360px;
-  margin-bottom: 22px;
+  max-width: 340px;
+  margin-bottom: 18px;
   break-inside: avoid;
   page-break-inside: avoid;
 }
@@ -469,8 +532,8 @@ const linhasEmpresa = computed(() => {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  padding: 4px 0;
-  font-size: 13px;
+  padding: 3px 0;
+  font-size: 12.5px;
   color: #374151;
 }
 .doc-resumo-linha .hint {
@@ -480,15 +543,29 @@ const linhasEmpresa = computed(() => {
 .doc-resumo-separador {
   border-top: 1px solid #e5e7eb;
   margin-top: 4px;
-  padding-top: 8px;
+  padding-top: 6px;
 }
+/* BUG-PDF-EXPORT-02 item 5 — VALOR TOTAL vira o elemento principal do
+   resumo (era só um pouco maior que as outras linhas: 17px vs 13px). Ganha
+   caixa destacada com fundo verde-gelo, igual em espírito ao chip de
+   status já usado no cabeçalho, pra parar de disputar atenção com as
+   linhas de subtotal/desconto acima. */
 .doc-resumo-total {
-  border-top: 1px solid #e5e7eb;
-  margin-top: 4px;
-  padding-top: 10px;
+  margin-top: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--brand-branco-gelo);
+  align-items: baseline;
   font-weight: 700;
-  font-size: 17px;
+  font-size: 20px;
   color: #1f2430;
+}
+.doc-resumo-total span:first-child {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--brand-verde-escuro);
 }
 .doc-resumo-total span:last-child {
   color: var(--brand-verde-escuro);
@@ -502,7 +579,7 @@ const linhasEmpresa = computed(() => {
 .doc-condicoes {
   break-inside: avoid;
   page-break-inside: avoid;
-  margin-bottom: 22px;
+  margin-bottom: 18px;
 }
 .doc-condicoes-linha {
   margin: 0 0 4px;
@@ -513,7 +590,7 @@ const linhasEmpresa = computed(() => {
 
 .doc-rodape {
   border-top: 1px solid var(--brand-branco-gelo);
-  padding-top: 16px;
+  padding-top: 14px;
   break-inside: avoid;
   page-break-inside: avoid;
 }
@@ -524,14 +601,17 @@ const linhasEmpresa = computed(() => {
   color: #1f2430;
 }
 .doc-rodape-frase {
-  margin: 2px 0 10px;
+  margin: 2px 0 8px;
   font-size: 12px;
   color: #6b7280;
 }
 .doc-rodape-identificacao {
-  margin: 0;
+  margin: 0 0 2px;
   font-size: 10.5px;
   color: #9ca3af;
+}
+.doc-rodape-identificacao:last-child {
+  margin-bottom: 0;
 }
 
 @media print {
