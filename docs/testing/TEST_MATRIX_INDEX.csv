@@ -147,6 +147,7 @@ DOC-003,Documentos,Relatório encerramento,Alta,Manual/E2E,Parcial,BR-025
 DOC-004,Documentos,Termo de débito vinculado,Crítica,API/E2E,Parcial,BR-023
 DOC-005,Documentos,Documento órfão,Média,API,Sim,BR-040
 DOC-006,Documentos,Acesso a anexo por usuário indevido,Alta,API,Sim,BR-040
+DOC-007,Documentos,Download direto do PDF de orçamento sem casca de navegador,Média,Manual/E2E,Parcial,"BR-004, BR-041"
 E2E-001,Fluxo E2E,Cliente externo normal,Crítica,E2E,Sim,BR-001
 E2E-002,Fluxo E2E,Aprovação parcial + adicional rejeitado,Crítica,E2E,Sim,BR-006
 E2E-003,Fluxo E2E,Sem estoque suficiente,Crítica,E2E,Sim,BR-015

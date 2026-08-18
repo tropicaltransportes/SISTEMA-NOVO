@@ -1395,6 +1395,15 @@ Cada caso deve manter o mesmo ID no relatório e, quando automatizado, preferenc
 - **Ação:** Acessar URL/endpoint sem permissão
 - **Resultado esperado:** Acesso negado
 
+## DOC-007 — Download direto do PDF de orçamento sem "casca" de navegador
+- **Criticidade:** Média
+- **Camada sugerida:** Manual/E2E
+- **Automação:** Parcial
+- **Regra relacionada:** BR-004, BR-041
+- **Pré-condição:** Orçamento válido, tela do documento carregada
+- **Ação:** Clicar "Baixar PDF" (BUG-PDF-EXPORT-02 — geração vetorial direta via jsPDF, distinta de "Imprimir"/`window.print()`)
+- **Resultado esperado:** Arquivo `Orcamento_<codigo>_V<versao>.pdf` baixado; sem URL, data/hora do navegador, título da aba ou numeração de página do navegador; sem o aviso "Invalid PrimeUI License"; texto selecionável; total idêntico ao valor do backend. Ver `docs/testing/BUG_PDF_EXPORT_02_REPORT.md` (casos PDF-EXP-001..008).
+
 
 # Fluxo E2E
 ## E2E-001 — Cliente externo normal
