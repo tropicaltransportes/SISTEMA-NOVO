@@ -22,13 +22,47 @@ rodadas RC1/RC2 já foi executado nesta rodada — ver
 | **Criado em** | 2026-08-12T19:58:37Z (pelo dono do projeto, antes desta rodada) |
 | **Status** | ACTIVE_HEALTHY |
 | **Papel** | **PRODUÇÃO** |
-| **Migrations aplicadas** | 51/51, local == remote (`npx supabase migration list --project-ref wtxbodhqyasdlmyoyjur`) |
+| **Migrations aplicadas** | 55/55, local == remote (`npx supabase migration list --project-ref wtxbodhqyasdlmyoyjur`). As últimas 4 (`20260818170000`..`20260818170300`, FEATURE-OS-CANCELAMENTO-01) foram promovidas em caráter emergencial em 2026-08-19 — ver seção "Promoção emergencial" abaixo. |
 | **Massa QA** | Nenhuma — projeto nasceu vazio, `supabase/seed.sql` nunca foi executado contra ele (nem pode ser: `db push` não roda seed, só `db reset`, e `db reset` nunca foi usado aqui) |
 | **Admin inicial** | Hammed de Carvalho Gurgel (`hammedgurgel@tropicaltransportes.com.br`), convidado via Supabase Auth Admin API (`/auth/v1/invite`), perfil `administrador_tecnico`, `ativo=true`. Convite enviado, ainda **não aceito** (sem senha definida) na data deste documento. |
 | **Configuração administrativa** | 5/6 itens de `rpc_status_configuracao_sistema()` = CONFIGURADO (custo/hora R$50/h, desconto 20% teto, anexos 15MB jpeg/png/webp/pdf, 3 centros de custo). `checklist_template` = PENDENTE, por decisão do dono (ele criará os templates depois). |
 | **Comando obrigatório para qualquer operação de banco nesta e em rodadas futuras** | sempre `--project-ref wtxbodhqyasdlmyoyjur` explícito. **Nunca** `supabase link` para produção, **nunca** `--linked` sozinho sem `--project-ref` também presente na mesma chamada (a combinação `--project-ref <ref> --linked` funciona sem alterar o estado de link persistido da CLI — confirmado nesta rodada). |
 
 **Nunca registrado aqui**: `service_role key`, senha de banco, connection string com senha, access token. A `anon key` de produção NÃO é secreta e está em `frontend/.env.production` (build de produção) — pode ser obtida a qualquer momento com `npx supabase projects api-keys --project-ref wtxbodhqyasdlmyoyjur`.
+
+### Promoção emergencial de 2026-08-19 (FEATURE-OS-CANCELAMENTO-01)
+
+**Achado real, fora do roteiro:** a feature foi implementada e testada
+integralmente em DEV/QA (ver `docs/testing/TEST_REPORT_OS_CANCELAMENTO01.md`),
+sem qualquer intenção de tocar produção nesta rodada. Durante a sessão, um
+merge de PR feito **pelo dono do projeto, fora da sessão** (PR #30,
+`feature/ux-pdf-orcamento-01` → `main`) trouxe o frontend novo (que já
+referencia as colunas `deleted_at`/`cancelado_em`/etc. de `ordens_servico`)
+para `main`. Isso disparou automaticamente `.github/workflows/deploy.yml`,
+publicando esse frontend em `https://tropicaltransportes.github.io/SISTEMA-NOVO/`
+— que já aponta para **produção** (`frontend/.env.production`) desde a
+ETAPA PROD-01. Como as 4 migrations da feature nunca tinham sido aplicadas
+em produção, a listagem de Ordens de Serviço quebrou ao vivo
+(`column ordens_servico.deleted_at does not exist`).
+
+O dono do projeto foi consultado e **autorizou explicitamente** a promoção
+emergencial das 4 migrations (`20260818170000` a `20260818170300`) para
+produção, para realinhar o banco com o frontend já publicado — não houve
+decisão de "pular homologação", foi resposta a uma quebra real já ao vivo,
+com a feature já 50/50 pgTAP + 84/84 regressão verde em DEV/QA antes da
+promoção. Aplicado via `npx supabase db push --project-ref wtxbodhqyasdlmyoyjur --linked`,
+55/55 local == remote confirmado depois.
+
+**Risco estrutural exposto por este incidente, não corrigido nesta
+rodada**: `deploy.yml` builda e publica automaticamente qualquer coisa que
+chegue em `main`, sem gate de "as migrations correspondentes já estão em
+produção?". Combinado com um hook deste ambiente que comita/dá push
+automaticamente ao final de sessões de trabalho, um merge para `main` feito
+sem coordenação pode publicar frontend incompatível com o schema de
+produção a qualquer momento. Vale considerar, em rodada futura: (a) um
+gate manual antes do deploy de produção, ou (b) checar programaticamente
+que `supabase migration list --project-ref wtxbodhqyasdlmyoyjur` está em
+dia antes de publicar.
 
 ### Como desativar um usuário em produção (procedimento operacional — AUT-007)
 
