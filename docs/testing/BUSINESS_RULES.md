@@ -1058,3 +1058,153 @@ encarregado que excluiu não consegue restaurar). Restauração limpa
 já está integralmente em `auditoria_eventos`, evento `ORCAMENTO_EXCLUIDO` —
 não duplicado em novas colunas). Restaurar um orçamento que não está
 excluído é bloqueado, não silenciosamente ignorado (`ORC-REST-003`).
+
+## BR-048 — Exclusão lógica de OS "virgem"
+**Status:** DEFINIDA (FEATURE-OS-CANCELAMENTO-01, DEV/QA — migration
+`20260818170000_p2d_os_exclusao_logica.sql`, projeto `jzjbiejmcaygwycvqggm`)
+
+**Regra:** uma OS só pode ser excluída logicamente enquanto
+`status = 'aberta'` **e** não existir nenhum rastro operacional: apontamento
+(`os_executores` — qualquer linha, já que `inicio` é `NOT NULL` na tabela
+real, não existe "atribuído sem iniciar" hoje), movimento de estoque
+(`estoque_movimentos.origem_tipo='os'`), foto (`os_fotos`), adicional
+(`os_adicionais`, qualquer status), resposta de checklist real
+(`os_checklist_respostas` — `checklist_template_id` sozinho na OS não
+bloqueia, é só seleção do template) ou cobrança vinculada
+(`cobranca_origens`). OS de garantia (`os_origem_id is not null`) nunca é
+excluída por este caminho, só cancelada (BR-049 reverte a origem para
+`liberada`). Mesma convenção de soft delete de `orcamentos`
+(`deleted_at`/`deleted_by`/`deleted_reason`) — `DELETE` físico nunca ocorre.
+Motivo obrigatório, mínimo de 5 caracteres, validado no backend
+(`rpc_excluir_os_rascunho`), nunca confiando só no frontend.
+
+**RLS, não frontend, é quem esconde a excluída:** `os_select_autenticado`
+passa a exigir `deleted_at is null or tem_perfil('administrador_tecnico')`
+— mesmo quem excluiu perde a visibilidade imediatamente (`OS-DEL-001b`,
+confirmado por teste); só `administrador_tecnico` continua vendo, para a
+tela de restauração.
+
+**Guardas adicionais de `deleted_at`** em RPCs/policies que só checavam
+`status` (a coluna não existia antes desta migration): inserção de
+apontamento (`os_executores_insert_proprio`), resposta de checklist
+(`os_checklist_insert_resposta`/`_update_resposta`), `rpc_registrar_foto_os`
+e `rpc_criar_os_adicional` — sem isso, uma OS excluída (que continua
+`status='aberta'`) ainda aceitaria atividade operacional nova por engano.
+
+Ver `docs/testing/TEST_REPORT_OS_CANCELAMENTO01.md` (`OS-DEL-001..009`).
+
+## BR-049 — Cancelamento formal de OS
+**Status:** DEFINIDA (FEATURE-OS-CANCELAMENTO-01, DEV/QA — migration
+`20260818170100_p2d_os_cancelamento.sql`)
+
+**Regra:** `rpc_cancelar_os` (RPC dedicada — `rpc_transicionar_os` passa a
+**rejeitar** `p_novo_status='cancelada'`, redirecionando para esta) permite
+cancelar de `aberta`, `em_diagnostico`, `aguardando_aprovacao`,
+`em_execucao`, `aguardando_teste` ou `concluida`. Motivo obrigatório,
+mínimo de 5 caracteres. Dentro de uma única transação (uma função PL/pgSQL
+— `raise` = rollback automático de tudo, nunca estado parcial):
+
+1. encerra todo apontamento em aberto (`os_executores.fim is null` vira
+   `now()`, auditado como `APONTAMENTO_ENCERRADO_POR_CANCELAMENTO`);
+2. fecha formalmente todo adicional `aguardando_aprovacao` (reaproveita o
+   núcleo de `rpc_cancelar_os_adicional`, extraído para o helper interno
+   `cancelar_os_adicional_interno` — mesmo comportamento de sempre, sem
+   inventar um terceiro vocabulário de "cancelado" no cabeçalho de
+   adicional: o header vira `'rejeitado'`, precedente já existente);
+3. estorna toda saída de estoque não estornada da OS (`origem_tipo='os'`) —
+   mesmo mecanismo já existente e idempotente por construção
+   (`estornar_saida_estoque_interno`, guarda contra estorno duplo via
+   `estornado_de`), cobre peça de orçamento **e** de adicional (ambos usam
+   `origem_tipo='os', origem_id=os_id`) sem lógica extra; o próprio estorno
+   já resincroniza `execucao_status` do item vinculado de volta a
+   `'pendente'`;
+4. item de **mão de obra** (sem `peca_id`, portanto sem `estoque_movimentos`
+   para o estorno resincronizar sozinho) que estava `'parcial'` volta a
+   `'pendente'` explicitamente — nunca `'cancelado'`: esse valor é um
+   override manual permanente (`sincronizar_execucao_item_orcamento` nunca
+   reabre um item `'cancelado'` automaticamente), e marcá-lo assim travaria
+   para sempre a execução de uma OS reconvertida do mesmo orçamento (BR-008);
+5. se a OS é uma OS de **garantia** (`os_origem_id is not null`), a origem
+   volta de `'reaberta_garantia'` para `'liberada'` — sem isso, cancelar uma
+   garantia aberta por engano prende a origem permanentemente (nenhum outro
+   caminho de volta existe);
+6. só então transiciona para `'cancelada'`, grava
+   `cancelado_em/cancelado_por/cancelamento_motivo` (colunas separadas de
+   `deleted_*`, mesmo racional de BR-046: motivo precisa estar na própria
+   linha, legível por todo perfil ativo, não só em `auditoria_eventos` que
+   exclui `executor`) e um evento `OS_CANCELADA` explícito com o motivo real
+   (o trigger genérico `audit_trg_os_status` já grava `mudanca_status` com
+   motivo sempre `null`).
+
+**Idempotência:** cancelar uma OS já cancelada é bloqueado
+(`OS-CAN-003`) — o estorno de estoque também é independentemente idempotente
+(`estornado_de`), então mesmo um retry hipotético nunca duplica devolução.
+
+**Concorrência:** `for update` no início de `rpc_cancelar_os` serializa
+contra outra chamada de cancelamento. `rpc_baixar_peca_os` (única RPC
+operacional relevante que ainda lia `status`/`orcamento_id`/`os_origem_id`
+sem lock) ganhou `for update` na mesma leitura (migration
+`20260818170200_p2d_os_concorrencia_e_correcoes.sql`) — sem isso, uma baixa
+concorrente com o cancelamento poderia gravar depois do estorno já ter
+rodado, sem ser incluída nele.
+
+Ver `docs/testing/TEST_REPORT_OS_CANCELAMENTO01.md` (`OS-CAN-001..009`,
+`OS-CONC-001/002`).
+
+## BR-050 — Bloqueios de cancelamento (financeiro, liberação, garantia)
+**Status:** DEFINIDA (FEATURE-OS-CANCELAMENTO-01, DEV/QA — migration
+`20260818170100_p2d_os_cancelamento.sql`)
+
+**Regra:** `rpc_cancelar_os` bloqueia incondicionalmente se existir
+recebimento confirmado vinculado (via `cobranca_origens → parcelas →
+recebimentos`) — nunca desfeito por cancelamento de OS. Bloqueia também se
+existir qualquer cobrança vinculada com `status <> 'cancelada'`, **mesmo
+sem recebimento** — decisão deliberada de **não** auto-cancelar a cobrança
+dentro da transação: `rpc_cancelar_cobranca` é uma RPC pública separada,
+auditada, com gate de perfil próprio (`suporte_administrativo`/
+`administrador_tecnico` — diferente do gate de `rpc_cancelar_os`,
+`encarregado`/`administrador_tecnico`); emprestar essa autoridade financeira
+implicitamente concederia a `encarregado` um poder que o sistema financeiro
+nunca concede a esse perfil. Fluxo correto: cancelar a cobrança primeiro
+(tela existente), só então cancelar a OS (`OS-FIN-CAN-004`, confirmado por
+teste).
+
+Bloqueia com mensagem específica se `status in ('liberada',
+'reaberta_garantia')` — não existe status "encerrada" literal no enum
+`status_os`; estes dois são os estados consolidados equivalentes, histórico
+operacional que só um fluxo administrativo futuro (fora do escopo desta
+feature) poderia reverter. Se a própria OS já gerou uma garantia
+(`exists (... where os_origem_id = p_os_id)`), o cancelamento também é
+bloqueado — checagem mantida como defesa em profundidade, embora
+estruturalmente já impossível dado o bloqueio de `liberada`/
+`reaberta_garantia` acima (só se chega a gerar garantia a partir de
+`liberada`).
+
+Ver `docs/testing/TEST_REPORT_OS_CANCELAMENTO01.md` (`OS-FIN-CAN-001..004`,
+`OS-CAN-002`).
+
+## BR-051 — Restauração administrativa de OS excluída
+**Status:** DEFINIDA (FEATURE-OS-CANCELAMENTO-01, DEV/QA — migrations
+`20260818170000_p2d_os_exclusao_logica.sql` e
+`20260818170300_p2d_os_reconversao_apos_exclusao.sql`)
+
+**Regra:** `rpc_restaurar_os_excluida` é restrita a `administrador_tecnico`
+— mais restrita que a própria exclusão (`encarregado`/`administrador_tecnico`),
+mesmo racional de BR-047. Bloqueada se o orçamento da OS já foi convertido
+em outra OS ativa nesse meio-tempo (mesmo predicado de BR-008/BR-045:
+`status <> 'cancelada' and deleted_at is null`). Nunca restaura OS
+`cancelada` — cancelamento é evento histórico, não "lixeira".
+
+**Achado durante a implementação:** exclusão lógica não muda `status` (só
+`deleted_at`), então o predicado de bloqueio de reconversão de BR-008
+(`rpc_criar_os`) e o predicado espelho desta RPC, que originalmente só
+olhavam `status <> 'cancelada'`, não sabiam que `deleted_at` existe —
+excluir uma OS "por engano" **não liberava** o orçamento para nova
+conversão (a OS excluída, com `status='aberta'` intacto, continuava
+contando como "OS ativa" para o bloqueio), contradizendo o propósito da
+própria exclusão lógica. Corrigido em
+`20260818170300_p2d_os_reconversao_apos_exclusao.sql`: os dois predicados
+agora ignoram OS soft-deleted, do mesmo jeito que a RLS de `SELECT` já
+ignora (`OS-REST-004a/b`, confirmado por teste).
+
+Ver `docs/testing/TEST_REPORT_OS_CANCELAMENTO01.md` (`OS-REST-001..004`).

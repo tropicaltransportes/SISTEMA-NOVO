@@ -15,6 +15,7 @@ import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Dialog from 'primevue/dialog'
 import Textarea from 'primevue/textarea'
+import Menu from 'primevue/menu'
 // OS-UX-01 — reestruturação em abas (tela era uma rolagem única); STATUS_OS
 // centraliza rótulo/cor do badge de status (era um mapa local + string crua).
 import { STATUS_OS } from '../../constants/statusVisual.js'
@@ -80,6 +81,10 @@ const podeCancelarAdicional = computed(() => ['encarregado', 'administrador_tecn
 const podeDefinirPrazo = computed(() => ['encarregado', 'administrador_tecnico'].includes(auth.perfil))
 const podeRemoverExecutor = computed(() => ['encarregado', 'administrador_tecnico'].includes(auth.perfil))
 const podeAnexarFoto = computed(() => ['executor', 'encarregado', 'suporte_administrativo', 'administrador_tecnico'].includes(auth.perfil))
+// FEATURE-OS-CANCELAMENTO-01 (BR-048/049/051)
+const podeExcluirOS = computed(() => ['encarregado', 'administrador_tecnico'].includes(auth.perfil))
+const podeCancelarOS = computed(() => ['encarregado', 'administrador_tecnico'].includes(auth.perfil))
+const podeRestaurarOS = computed(() => auth.perfil === 'administrador_tecnico')
 
 const NOVENTA_DIAS_MS = 90 * 24 * 60 * 60 * 1000
 const prazoGarantiaAte = computed(() => {
@@ -96,7 +101,7 @@ async function carregar() {
   const [respOs, respExec, respMov, respPecas, respTemplates] = await Promise.all([
     supabase
       .from('ordens_servico')
-      .select('id, tipo, status, data_abertura, data_liberacao, checklist_template_id, orcamento_id, os_origem_id, previsao_conclusao, previsao_definida_por, previsao_definida_em, custo_pecas, custo_mao_obra, custo_total, custo_hora_aplicado, horas_apontadas_total, custo_calculado_em, centro_custo_id, veiculo:veiculos(id, placa, prefixo, modelo), cliente:clientes(id, nome, tipo)')
+      .select('id, tipo, status, data_abertura, data_liberacao, checklist_template_id, orcamento_id, os_origem_id, previsao_conclusao, previsao_definida_por, previsao_definida_em, custo_pecas, custo_mao_obra, custo_total, custo_hora_aplicado, horas_apontadas_total, custo_calculado_em, centro_custo_id, deleted_at, deleted_by, deleted_reason, cancelado_em, cancelado_por, cancelamento_motivo, veiculo:veiculos(id, placa, prefixo, modelo), cliente:clientes(id, nome, tipo), deleted_by_profile:profiles!ordens_servico_deleted_by_fkey(nome), cancelado_por_profile:profiles!ordens_servico_cancelado_por_fkey(nome)')
       .eq('id', osId.value)
       .single(),
     // ETAPA 8 (RC2) — seção 1: 'usuario:profiles(nome)' é ambíguo porque
@@ -234,15 +239,18 @@ function respostaDoItem(itemId) {
 }
 
 // ---------- Transições ----------
+// FEATURE-OS-CANCELAMENTO-01: 'Cancelar' deixou de ser uma transição
+// genérica daqui — rpc_transicionar_os agora rejeita 'cancelada' (exige
+// motivo e trata apontamentos/adicionais/estoque/garantia). O fluxo
+// dedicado mora no menu "⋮" (abrirCancelarOS), não neste mapa.
 const transicoesDisponiveis = computed(() => {
   const mapa = {
-    aberta: [{ label: 'Iniciar Diagnóstico', next: 'em_diagnostico' }, { label: 'Cancelar', next: 'cancelada', danger: true }],
+    aberta: [{ label: 'Iniciar Diagnóstico', next: 'em_diagnostico' }],
     em_diagnostico: [
       { label: 'Enviar p/ Aprovação (orçamento adicional)', next: 'aguardando_aprovacao' },
       { label: 'Iniciar Execução', next: 'em_execucao' },
-      { label: 'Cancelar', next: 'cancelada', danger: true },
     ],
-    aguardando_aprovacao: [{ label: 'Iniciar Execução', next: 'em_execucao' }, { label: 'Cancelar', next: 'cancelada', danger: true }],
+    aguardando_aprovacao: [{ label: 'Iniciar Execução', next: 'em_execucao' }],
     em_execucao: [{ label: 'Enviar p/ Teste', next: 'aguardando_teste' }],
   }
   return mapa[os.value?.status] ?? []
@@ -433,7 +441,134 @@ async function iniciarApontamento() {
 // enquanto a OS não está concluída/liberada/cancelada (o backend já nega o
 // UPDATE nesses casos — esconder o botão evita o usuário tentar uma ação
 // que sempre falharia, mas a garantia real continua sendo a policy).
-const osEncerrada = computed(() => ['concluida', 'liberada', 'cancelada'].includes(os.value?.status))
+// FEATURE-OS-CANCELAMENTO-01: uma OS excluída (deleted_at) é sempre
+// 'aberta' por definição (BR-048), mas não deve voltar a aceitar nenhuma
+// ação operacional — mesmo tratamento de "encerrada" para fins de exibição
+// dos botões de ação (o backend já bloqueia cada RPC individualmente; isto
+// só evita oferecer um botão que sempre falharia).
+const osEncerrada = computed(() => ['concluida', 'liberada', 'cancelada'].includes(os.value?.status) || !!os.value?.deleted_at)
+
+// ---------- Excluir / Cancelar / Restaurar OS (FEATURE-OS-CANCELAMENTO-01) ----------
+// Critério de "virgem" (BR-048) espelhado aqui só para decidir qual ação
+// oferecer no menu — o backend (rpc_excluir_os_rascunho) é a autoridade
+// real, revalida tudo de novo. cobranca_origens não é checado aqui porque
+// não é estruturalmente alcançável com status='aberta' (cobrança só nasce
+// de OS 'concluida' — rpc_criar_cobranca exige isso), então nunca haveria
+// nada para refletir.
+const osEhVirgem = computed(() => {
+  if (!os.value || os.value.status !== 'aberta' || os.value.deleted_at) return false
+  return (
+    executores.value.length === 0 &&
+    movimentos.value.length === 0 &&
+    osFotos.value.length === 0 &&
+    osAdicionais.value.length === 0 &&
+    respostas.value.length === 0
+  )
+})
+const osCancelavel = computed(() => {
+  if (!os.value || os.value.deleted_at) return false
+  return ['aberta', 'em_diagnostico', 'aguardando_aprovacao', 'em_execucao', 'aguardando_teste', 'concluida'].includes(os.value.status)
+})
+
+const menuAcoesOS = ref()
+const itensMenuAcoesOS = computed(() => {
+  if (!os.value) return []
+  const lista = []
+  if (osEhVirgem.value && podeExcluirOS.value) {
+    lista.push({ label: 'Excluir OS', icon: 'pi pi-trash', class: 'item-menu-destrutivo', command: () => abrirExcluirOS() })
+  } else if (osCancelavel.value && podeCancelarOS.value) {
+    lista.push({ label: 'Cancelar OS', icon: 'pi pi-ban', class: 'item-menu-destrutivo', command: () => abrirCancelarOS() })
+  }
+  if (os.value.deleted_at && podeRestaurarOS.value) {
+    lista.push({ label: 'Restaurar OS', icon: 'pi pi-refresh', command: () => confirmarRestaurarOS() })
+  }
+  return lista
+})
+function abrirMenuAcoesOS(event) {
+  menuAcoesOS.value.toggle(event)
+}
+
+const dialogoExclusaoOSAberto = ref(false)
+const salvandoExclusaoOS = ref(false)
+const formExclusaoOS = ref({ motivo: '' })
+function abrirExcluirOS() {
+  formExclusaoOS.value = { motivo: '' }
+  dialogoExclusaoOSAberto.value = true
+}
+async function confirmarExcluirOS() {
+  if (!formExclusaoOS.value.motivo || formExclusaoOS.value.motivo.trim().length < 5) {
+    toast.add({ severity: 'warn', summary: 'Motivo da exclusão é obrigatório (mín. 5 caracteres)', life: 5000 })
+    return
+  }
+  salvandoExclusaoOS.value = true
+  const { error } = await supabase.rpc('rpc_excluir_os_rascunho', { p_os_id: osId.value, p_motivo: formExclusaoOS.value.motivo })
+  salvandoExclusaoOS.value = false
+  if (error) {
+    toast.add({ severity: 'error', summary: 'Erro ao excluir OS', detail: error.message, life: 8000 })
+    return
+  }
+  toast.add({ severity: 'success', summary: 'OS excluída', life: 3000 })
+  dialogoExclusaoOSAberto.value = false
+  router.push('/os')
+}
+
+const dialogoCancelamentoOSAberto = ref(false)
+const salvandoCancelamentoOS = ref(false)
+const formCancelamentoOS = ref({ motivo: '' })
+function abrirCancelarOS() {
+  formCancelamentoOS.value = { motivo: '' }
+  dialogoCancelamentoOSAberto.value = true
+}
+async function confirmarCancelarOS() {
+  if (!formCancelamentoOS.value.motivo || formCancelamentoOS.value.motivo.trim().length < 5) {
+    toast.add({ severity: 'warn', summary: 'Motivo do cancelamento é obrigatório (mín. 5 caracteres)', life: 5000 })
+    return
+  }
+  salvandoCancelamentoOS.value = true
+  const { error } = await supabase.rpc('rpc_cancelar_os', { p_os_id: osId.value, p_motivo: formCancelamentoOS.value.motivo })
+  salvandoCancelamentoOS.value = false
+  if (error) {
+    toast.add({ severity: 'error', summary: 'Erro ao cancelar OS', detail: error.message, life: 8000 })
+    return
+  }
+  toast.add({ severity: 'success', summary: 'OS cancelada', life: 3000 })
+  dialogoCancelamentoOSAberto.value = false
+  await carregar()
+}
+
+function confirmarRestaurarOS() {
+  confirm.require({
+    message: 'Restaurar esta OS excluída? Ela volta a aparecer nas listagens normais.',
+    header: 'Confirmar restauração',
+    icon: 'pi pi-refresh',
+    acceptLabel: 'Restaurar',
+    rejectLabel: 'Cancelar',
+    accept: async () => {
+      const { error } = await supabase.rpc('rpc_restaurar_os_excluida', { p_os_id: osId.value })
+      if (error) {
+        toast.add({ severity: 'error', summary: 'Erro ao restaurar', detail: error.message, life: 6000 })
+        return
+      }
+      toast.add({ severity: 'success', summary: 'OS restaurada', life: 3000 })
+      await carregar()
+    },
+  })
+}
+
+// Resumo de consequências mostrado no modal de cancelar (seção 34 do
+// pedido: nunca inventar contador que não possa ser obtido com segurança —
+// todos vêm de arrays já carregados por carregar(), nenhum SELECT novo).
+const resumoConsequenciasCancelamento = computed(() => {
+  if (!os.value) return []
+  const linhas = []
+  const apontamentosAbertos = executores.value.filter((e) => !e.fim).length
+  if (apontamentosAbertos > 0) linhas.push(`${apontamentosAbertos} apontamento(s) em aberto serão encerrados`)
+  const pecasBaixadas = movimentos.value.filter((m) => m.tipo === 'saida').length
+  if (pecasBaixadas > 0) linhas.push(`${pecasBaixadas} peça(s) baixada(s) serão estornadas ao estoque`)
+  const adicionaisPendentes = osAdicionais.value.filter((a) => a.status === 'aguardando_aprovacao').length
+  if (adicionaisPendentes > 0) linhas.push(`${adicionaisPendentes} adicional(is) aguardando aprovação serão encerrados formalmente`)
+  return linhas
+})
 
 async function encerrarApontamento(exec) {
   const { error } = await supabase.from('os_executores').update({ fim: new Date().toISOString() }).eq('id', exec.id)
@@ -958,8 +1093,6 @@ watch(osId, carregar, { immediate: true })
             :outlined="os.status !== 'liberada'"
             @click="confirmarAbrirGarantia"
           />
-          <!-- destrutiva: sempre separada, nunca disputa peso visual com a primária -->
-          <Button v-if="transicaoDanger" :label="transicaoDanger.label" size="small" severity="danger" outlined @click="confirmarTransicao(transicaoDanger)" />
           <!-- ETAPA 6 (P1-C) — item 4/5, peso mínimo (link), independente do status -->
           <Button
             v-if="['concluida', 'liberada'].includes(os.status)"
@@ -977,6 +1110,10 @@ watch(osId, carregar, { immediate: true })
             text
             @click="router.push('/os/' + osId + '/relatorio-garantia')"
           />
+          <!-- FEATURE-OS-CANCELAMENTO-01: Excluir/Cancelar/Restaurar OS vivem
+               aqui, nunca como botão vermelho fixo (seção 32 do pedido). -->
+          <Button v-if="itensMenuAcoesOS.length" icon="pi pi-ellipsis-v" text rounded aria-label="Mais ações" @click="abrirMenuAcoesOS($event)" />
+          <Menu ref="menuAcoesOS" :model="itensMenuAcoesOS" :popup="true" />
         </div>
       </div>
     </div>
@@ -993,7 +1130,22 @@ watch(osId, carregar, { immediate: true })
       </template>
     </div>
     <div v-else-if="os.status === 'cancelada'" class="badge-terminal badge-cancelada">
-      <i class="pi pi-times-circle"></i> OS cancelada
+      <i class="pi pi-times-circle"></i>
+      <span>
+        OS cancelada
+        <template v-if="os.cancelamento_motivo"> — Motivo: {{ os.cancelamento_motivo }}</template>
+        <template v-if="os.cancelado_por_profile?.nome"> · Cancelada por {{ os.cancelado_por_profile.nome }}</template>
+        <template v-if="os.cancelado_em"> · {{ new Date(os.cancelado_em).toLocaleString('pt-BR') }}</template>
+      </span>
+    </div>
+    <div v-if="os.deleted_at" class="badge-terminal badge-cancelada">
+      <i class="pi pi-trash"></i>
+      <span>
+        OS excluída
+        <template v-if="os.deleted_reason"> — Motivo: {{ os.deleted_reason }}</template>
+        <template v-if="os.deleted_by_profile?.nome"> · Excluída por {{ os.deleted_by_profile.nome }}</template>
+        <template v-if="os.deleted_at"> · {{ new Date(os.deleted_at).toLocaleString('pt-BR') }}</template>
+      </span>
     </div>
 
     <!-- ===== ABAS ===== -->
@@ -1459,6 +1611,51 @@ watch(osId, carregar, { immediate: true })
         <Button label="Confirmar cancelamento" severity="danger" @click="confirmarCancelarAdicional" />
       </template>
     </Dialog>
+
+    <!-- FEATURE-OS-CANCELAMENTO-01 (BR-048) — exclusão lógica de OS virgem -->
+    <Dialog v-model:visible="dialogoExclusaoOSAberto" modal header="Excluir Ordem de Serviço?" style="width: 460px">
+      <p class="texto-explicativo">
+        Esta OS ainda não possui atividade operacional e será removida das listagens normais. O registro permanecerá preservado para auditoria.
+      </p>
+      <p v-if="os" class="resumo-decisao">
+        OS: <strong>{{ os.veiculo?.placa }}</strong>
+        Cliente: <strong>{{ os.cliente?.nome || '—' }}</strong>
+        Veículo: <strong>{{ os.veiculo?.modelo || '—' }}</strong>
+        Abertura: <strong>{{ new Date(os.data_abertura).toLocaleString('pt-BR') }}</strong>
+      </p>
+      <div class="form-campo">
+        <label>Motivo da exclusão (obrigatório)</label>
+        <Textarea v-model="formExclusaoOS.motivo" rows="3" autoResize placeholder="Mínimo 5 caracteres" />
+      </div>
+      <template #footer>
+        <Button label="Voltar" text @click="dialogoExclusaoOSAberto = false" />
+        <Button label="Excluir OS" severity="danger" :loading="salvandoExclusaoOS" @click="confirmarExcluirOS" />
+      </template>
+    </Dialog>
+
+    <!-- FEATURE-OS-CANCELAMENTO-01 (BR-049/050) — cancelamento formal -->
+    <Dialog v-model:visible="dialogoCancelamentoOSAberto" modal header="Cancelar Ordem de Serviço?" style="width: 480px">
+      <p class="texto-explicativo">O cancelamento preservará todo o histórico e realizará os estornos permitidos.</p>
+      <p v-if="os" class="resumo-decisao">
+        OS: <strong>{{ os.veiculo?.placa }}</strong>
+        Cliente: <strong>{{ os.cliente?.nome || '—' }}</strong>
+        Veículo: <strong>{{ os.veiculo?.modelo || '—' }}</strong>
+      </p>
+      <div v-if="resumoConsequenciasCancelamento.length" class="info-box">
+        <p><strong>Esta OS possui:</strong></p>
+        <ul>
+          <li v-for="(linha, i) in resumoConsequenciasCancelamento" :key="i">{{ linha }}</li>
+        </ul>
+      </div>
+      <div class="form-campo">
+        <label>Motivo do cancelamento (obrigatório)</label>
+        <Textarea v-model="formCancelamentoOS.motivo" rows="3" autoResize placeholder="Mínimo 5 caracteres" />
+      </div>
+      <template #footer>
+        <Button label="Voltar" text @click="dialogoCancelamentoOSAberto = false" />
+        <Button label="Cancelar OS" severity="danger" :loading="salvandoCancelamentoOS" @click="confirmarCancelarOS" />
+      </template>
+    </Dialog>
   </div>
 </template>
 
@@ -1618,6 +1815,18 @@ watch(osId, carregar, { immediate: true })
   background: var(--danger-bg);
   color: var(--danger);
   border: 1px solid var(--danger);
+}
+.badge-cancelada span {
+  font-weight: 400;
+}
+
+/* FEATURE-OS-CANCELAMENTO-01: menu "⋮" (Excluir/Cancelar/Restaurar OS) —
+   mesmo padrão de frontend/src/views/orcamentos/OrcamentosList.vue, nunca
+   botão vermelho permanente na tabela/cabeçalho. */
+:deep(.item-menu-destrutivo .p-menu-item-link),
+:deep(.item-menu-destrutivo .p-menu-item-icon),
+:deep(.item-menu-destrutivo .p-menu-item-label) {
+  color: var(--danger);
 }
 
 /* ===== Abas ===== */
