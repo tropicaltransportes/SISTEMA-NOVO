@@ -1,8 +1,18 @@
 # TEST_REPORT — FEATURE-OS-CANCELAMENTO-01
 
-Exclusão lógica e cancelamento seguro de Ordens de Serviço. Implementado e testado em **DEV/QA** (projeto `jzjbiejmcaygwycvqggm`). **Nada promovido a produção.**
+Exclusão lógica e cancelamento seguro de Ordens de Serviço. Implementado e testado em **DEV/QA** (projeto `jzjbiejmcaygwycvqggm`) — 50/50 pgTAP + 84/84 regressão verdes, validado em browser real, antes de qualquer promoção.
 
-Data: 2026-08-18.
+**Atualização de 2026-08-19 (fora do escopo original desta rodada):** as
+4 migrations foram promovidas para produção (`wtxbodhqyasdlmyoyjur`) em
+caráter **emergencial**, com autorização explícita do dono do projeto,
+depois que um merge de PR feito por fora desta sessão publicou o frontend
+novo em produção sem o schema correspondente, quebrando a listagem de OS
+ao vivo. Ver `docs/ENVIRONMENTS.md`, seção "Promoção emergencial de
+2026-08-19", para a causa raiz completa e o risco estrutural exposto no
+pipeline de deploy. Produção confirmada 55/55 migrations, local == remote,
+depois da promoção.
+
+Data: 2026-08-18 (implementação/testes) — 2026-08-19 (promoção emergencial).
 
 ## Resumo executivo
 
@@ -123,9 +133,10 @@ REGRESSÃO               = OK — 010 a 080 (84 asserções) permanecem 100% ver
 
 ---
 
-## Próximas ações (não executadas nesta rodada)
+## Próximas ações
 
 1. Revisão/aprovação deste relatório pelo usuário.
 2. Validação manual do filtro de status na listagem (item 2 de LIMITAÇÕES).
 3. Homologação formal em DEV/QA (fora do escopo desta sessão de implementação).
-4. **Autorização explícita do usuário** antes de promover qualquer migration para produção — nada foi promovido.
+4. ~~Autorização explícita do usuário antes de promover qualquer migration para produção~~ — **feito em caráter emergencial em 2026-08-19**, ver atualização no topo deste relatório e `docs/ENVIRONMENTS.md`.
+5. **Novo, decorrente do incidente:** avaliar o risco estrutural do pipeline de deploy (`.github/workflows/deploy.yml` publica qualquer coisa que chegue em `main` sem checar se o schema de produção está em dia) — ver seção "Promoção emergencial" em `docs/ENVIRONMENTS.md`.
