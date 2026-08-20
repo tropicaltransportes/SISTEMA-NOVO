@@ -49,14 +49,23 @@ function tempoDecorrido(inicio) {
   return h > 0 ? `${h}h${String(m).padStart(2, '0')}` : `${m}min`
 }
 
-// Sugestão inteligente de etapa (item 11 do pedido): diagnóstico sugere
-// "Diagnóstico"; execução sugere "Execução do serviço" (só troca quando o
-// usuário estiver realmente fazendo teste/revisão).
+// Sugestão inteligente de atividade (item 11/35 do pedido — ETAPA
+// OS-FLOW-03 acrescenta o branch de Teste que faltava: sem ele, uma OS em
+// "Aguardando Teste" nunca sugeria "Teste / Validação", o que ajudava o bug
+// original a acontecer — quem fosse testar podia acabar iniciando/deixando
+// aberto um apontamento de Execução por engano ou hábito).
 const etapaSugerida = computed(() => {
   if (props.os.status === 'em_diagnostico') return 'diagnostico'
   if (props.os.status === 'em_execucao') return 'execucao'
+  if (props.os.status === 'aguardando_teste') return 'teste'
   return null
 })
+
+// Rótulo da ação varia com a FASE da OS (item 11/25 do pedido) — em Teste,
+// "Iniciar/Finalizar teste"; nas demais fases, "Iniciar/Finalizar trabalho".
+const rotuloAcao = computed(() =>
+  props.os.status === 'aguardando_teste' ? { iniciar: 'Iniciar teste', finalizar: 'Finalizar teste' } : { iniciar: 'Iniciar trabalho', finalizar: 'Finalizar trabalho' }
+)
 
 const formApontamento = ref({ etapa: etapaSugerida.value, observacao: '' })
 
@@ -81,15 +90,16 @@ const execucoesAtivas = computed(() => props.executores.filter((e) => e.ativo !=
         <span class="hint">Iniciado às {{ new Date(meuApontamentoAtivo.inicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }} · {{ tempoDecorrido(meuApontamentoAtivo.inicio) }} decorridos</span>
         <span v-if="meuApontamentoAtivo.observacao" class="hint">{{ meuApontamentoAtivo.observacao }}</span>
       </div>
-      <Button label="Finalizar trabalho" class="btn-gradiente" @click="encerrarApontamento(meuApontamentoAtivo)" />
+      <Button :label="rotuloAcao.finalizar" class="btn-gradiente" @click="encerrarApontamento(meuApontamentoAtivo)" />
     </div>
 
     <div v-else-if="podeApontar && !osEncerrada" class="apontamento-form">
       <p class="hint">Nenhuma atividade em andamento.</p>
       <div class="form-linha">
-        <Select v-model="formApontamento.etapa" :options="ETAPAS" optionLabel="label" optionValue="value" placeholder="Atividade" />
+        <span class="rotulo-atividade">Atividade</span>
+        <Select v-model="formApontamento.etapa" :options="ETAPAS" optionLabel="label" optionValue="value" placeholder="Selecione" />
         <InputText v-model="formApontamento.observacao" placeholder="Observação (opcional)" />
-        <Button label="Iniciar trabalho" class="btn-gradiente" @click="confirmarIniciar" :disabled="!formApontamento.etapa" />
+        <Button :label="rotuloAcao.iniciar" class="btn-gradiente" @click="confirmarIniciar" :disabled="!formApontamento.etapa" />
       </div>
     </div>
     <p v-else class="hint">Nenhuma atividade em andamento.</p>
@@ -171,6 +181,13 @@ const execucoesAtivas = computed(() => props.executores.filter((e) => e.ativo !=
   gap: 0.5rem;
   align-items: center;
   flex-wrap: wrap;
+}
+.rotulo-atividade {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 .link-ver-todos {
   background: none;

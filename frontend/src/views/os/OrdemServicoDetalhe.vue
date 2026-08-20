@@ -204,6 +204,10 @@ function respostaDoItem(itemId) {
 }
 
 // ---------- Transições ----------
+// ETAPA OS-FLOW-03 — BR-053: 2 retrocessos controlados, sempre com motivo,
+// nunca na zona de ação principal (ficam no menu "⋮", item 10 do pedido).
+// Continuam fora do mapa `transicoesDisponiveis` de propósito — aquele
+// mapa alimenta a ação primária do cabeçalho, que só deve oferecer avanço.
 const transicoesDisponiveis = computed(() => {
   const mapa = {
     aberta: [{ label: 'Iniciar Diagnóstico', next: 'em_diagnostico' }],
@@ -217,13 +221,22 @@ const transicoesDisponiveis = computed(() => {
   return mapa[os.value?.status] ?? []
 })
 
-async function transicionar(next) {
-  const { error } = await supabase.rpc('rpc_transicionar_os', { p_os_id: osId.value, p_novo_status: next })
+const retrocessosDisponiveis = computed(() => {
+  const mapa = {
+    aguardando_teste: [{ label: 'Retornar para Execução', next: 'em_execucao' }],
+    em_execucao: [{ label: 'Retornar para Diagnóstico', next: 'em_diagnostico' }],
+  }
+  return mapa[os.value?.status] ?? []
+})
+
+async function transicionar(next, motivo = null) {
+  const { error } = await supabase.rpc('rpc_transicionar_os', { p_os_id: osId.value, p_novo_status: next, p_motivo: motivo })
   if (error) {
     toast.add({ severity: 'error', summary: 'Erro ao transicionar', detail: error.message, life: 6000 })
-    return
+    return false
   }
   await carregar()
+  return true
 }
 
 function confirmarTransicao(t) {
@@ -236,6 +249,24 @@ function confirmarTransicao(t) {
     rejectLabel: 'Voltar',
     accept: () => transicionar(t.next),
   })
+}
+
+// ---------- Retorno controlado de fase (BR-053) ----------
+const dialogoRetornoFaseAberto = ref(false)
+const retrocessoAlvo = ref(null)
+const motivoRetornoFase = ref('')
+function abrirRetornoFase(item) {
+  retrocessoAlvo.value = item
+  motivoRetornoFase.value = ''
+  dialogoRetornoFaseAberto.value = true
+}
+async function confirmarRetornoFase() {
+  if (!motivoRetornoFase.value || motivoRetornoFase.value.trim().length < 5) {
+    toast.add({ severity: 'warn', summary: 'Informe o motivo (mín. 5 caracteres)', life: 4000 })
+    return
+  }
+  const ok = await transicionar(retrocessoAlvo.value.next, motivoRetornoFase.value)
+  if (ok) dialogoRetornoFaseAberto.value = false
 }
 
 async function concluir() {
@@ -384,6 +415,10 @@ async function iniciarApontamento(payload) {
 }
 
 const osEncerrada = computed(() => ['concluida', 'liberada', 'cancelada'].includes(os.value?.status) || !!os.value?.deleted_at)
+
+// ETAPA OS-FLOW-03 — BR-052: reflexo visual só (a RPC é quem decide de
+// verdade) do bloqueio de transição/conclusão com apontamento aberto.
+const apontamentoAberto = computed(() => executores.value.some((e) => e.ativo !== false && !e.fim))
 
 // ---------- Excluir / Cancelar / Restaurar OS ----------
 const osEhVirgem = computed(() => {
@@ -766,6 +801,22 @@ const resumoOS = computed(() => ({
   adicionaisTotal: osAdicionais.value.length,
 }))
 
+// ETAPA OS-FLOW-03 (itens 15/23 do pedido) — "aprovado" != "utilizado":
+// itensParaBaixa já carrega quantidade aprovada e `restante` por item
+// (calculado do ledger de estoque_movimentos), só falta contar quantos
+// itens ainda têm pendência. Para Adicionais, contagens por ITEM (não por
+// cabeçalho de adicional) porque um único adicional pode ter itens em
+// estados diferentes.
+const pecasAguardandoUtilizacao = computed(() => itensParaBaixa.value.filter((i) => i.restante > 0).length)
+
+const todosItensAdicionais = computed(() => osAdicionais.value.flatMap((a) => a.os_adicional_itens ?? []))
+const resumoAdicionais = computed(() => ({
+  identificados: osAdicionais.value.length,
+  aguardandoDecisao: todosItensAdicionais.value.filter((i) => i.status_aprovacao === 'pendente').length,
+  aprovados: todosItensAdicionais.value.filter((i) => i.status_aprovacao === 'aprovado').length,
+  executados: todosItensAdicionais.value.filter((i) => i.status_aprovacao === 'aprovado' && i.execucao_status === 'executado').length,
+}))
+
 function rotuloStatus(s) {
   return STATUS_OS[s]?.label ?? s ?? '—'
 }
@@ -829,11 +880,14 @@ watch(osId, carregar, { immediate: true })
       :dentro-do-prazo-garantia="dentroDoPrazoGarantia"
       :transicoes-nao-danger="transicoesNaoDanger"
       :itens-menu-acoes="itensMenuAcoesOS"
+      :retrocessos-disponiveis="retrocessosDisponiveis"
+      :apontamento-aberto="apontamentoAberto"
       :abrir-prazo="abrirPrazo"
       :confirmar-transicao="confirmarTransicao"
       :concluir="concluir"
       :liberar="liberar"
       :confirmar-abrir-garantia="confirmarAbrirGarantia"
+      :abrir-retorno-fase="abrirRetornoFase"
     />
 
     <OsFaseAtual
@@ -884,6 +938,7 @@ watch(osId, carregar, { immediate: true })
       :os-fotos="osFotos"
       :checklist-template-atual="checklistTemplateAtual"
       :executores="executores"
+      :itens-para-baixa="itensParaBaixa"
       :pode-transicionar="podeTransicionar"
       :concluir="concluir"
     />
@@ -911,9 +966,12 @@ watch(osId, carregar, { immediate: true })
       :checklist-obrigatorios-pendentes="checklistObrigatoriosPendentes"
       :pecas-count="resumoOS.totalPecasQtd"
       :pecas-valor="resumoOS.totalPecasQtd ? formatarMoeda(resumoOS.totalPecasValor) : ''"
+      :pecas-aguardando-utilizacao="pecasAguardandoUtilizacao"
       :fotos-count="resumoOS.totalFotos"
-      :adicionais-abertos="resumoOS.adicionaisAbertos"
-      :adicionais-total="resumoOS.adicionaisTotal"
+      :adicionais-identificados="resumoAdicionais.identificados"
+      :adicionais-aprovados="resumoAdicionais.aprovados"
+      :adicionais-executados="resumoAdicionais.executados"
+      :adicionais-aguardando-decisao="resumoAdicionais.aguardandoDecisao"
       @abrir-checklist="dialogChecklistAberto = true"
       @abrir-pecas="dialogPecasAberto = true"
       @abrir-fotos="dialogFotosAberto = true"
@@ -1001,6 +1059,18 @@ watch(osId, carregar, { immediate: true })
       <template #footer>
         <Button label="Cancelar" text @click="dialogoPrazoAberto = false" />
         <Button label="Salvar" @click="salvarPrazo" />
+      </template>
+    </Dialog>
+
+    <Dialog v-model:visible="dialogoRetornoFaseAberto" modal :header="retrocessoAlvo?.label ?? 'Retornar fase'" style="width: 440px">
+      <p class="hint">Isto muda a fase da OS de volta — fica registrado na trilha de auditoria com motivo, usuário e data/hora. Nenhum apontamento antigo é reaberto; o próximo trabalho gera um apontamento novo.</p>
+      <div class="form-campo">
+        <label>Motivo (obrigatório)</label>
+        <Textarea v-model="motivoRetornoFase" rows="3" autoResize placeholder="Ex.: Vazamento identificado durante teste final. (mínimo 5 caracteres)" style="width:100%" />
+      </div>
+      <template #footer>
+        <Button label="Voltar" text @click="dialogoRetornoFaseAberto = false" />
+        <Button :label="retrocessoAlvo?.label ?? 'Confirmar'" @click="confirmarRetornoFase" />
       </template>
     </Dialog>
 

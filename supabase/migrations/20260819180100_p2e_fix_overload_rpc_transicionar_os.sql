@@ -1,0 +1,14 @@
+-- ETAPA OS-FLOW-03 (fix) — achado real rodando os testes novos:
+-- `create or replace function rpc_transicionar_os(uuid, status_os, text
+-- default null)` na migration anterior NÃO substituiu a versão de 2
+-- parâmetros — Postgres identifica função por (nome, tipos dos parâmetros),
+-- e a lista de tipos mudou (2 vs 3), então ficaram DUAS funções
+-- sobrecarregadas coexistindo. Toda chamada com 2 argumentos passou a ser
+-- ambígua ("function rpc_transicionar_os(uuid, status_os) is not unique"),
+-- quebrando qualquer chamador existente que não passa p_motivo — inclusive
+-- o frontend atual, que ainda chama com 2 argumentos em todo lugar exceto
+-- o retorno de fase novo.
+--
+-- Mesmo padrão já usado em 20260817140100_p2_fix_natureza_gerada.sql:
+-- correção vira uma migration nova, nunca edita a anterior já aplicada.
+drop function if exists rpc_transicionar_os(uuid, status_os);

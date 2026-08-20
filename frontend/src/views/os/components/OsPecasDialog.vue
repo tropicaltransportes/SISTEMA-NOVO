@@ -38,10 +38,44 @@ async function confirmarBaixa() {
   await props.baixarPeca({ chave: form.value.chave, peca_id: form.value.peca_id, quantidade: form.value.quantidade })
   form.value = { chave: null, peca_id: null, quantidade: 1 }
 }
+
+// ETAPA OS-FLOW-03 (itens 13-19 do pedido) — "aprovado" (cliente/decisão
+// autorizou) não é "utilizado" (consumo físico registrado). itensParaBaixa
+// já carrega, por item, quantidade aprovada e `restante` (calculado pelo
+// pai a partir do ledger de estoque_movimentos) — só falta mostrar a
+// diferença explicitamente em vez de só "restam X de Y" dentro do Select.
+function registrarUtilizacao(item) {
+  form.value.chave = item.chave
+  selecionouItem()
+}
 </script>
 
 <template>
-  <Dialog v-model:visible="visible" modal header="Peças" style="width: 640px">
+  <Dialog v-model:visible="visible" modal header="Peças" style="width: 680px">
+    <h4 class="subtitulo-secao">Previstas / Aprovadas</h4>
+    <p class="hint-secao">Aprovado (orçamento ou adicional) é diferente de utilizado — só conta como utilizada depois que a baixa de estoque é registrada.</p>
+    <div v-if="itensParaBaixa.length === 0" class="estado-vazio-card">
+      <i class="pi pi-check-circle"></i>
+      <div>
+        <strong>Nenhuma peça aprovada pendente</strong>
+        <p>Itens de peça aprovados (orçamento ou adicional) aparecerão aqui até serem totalmente utilizados.</p>
+      </div>
+    </div>
+    <ul v-else class="lista-previstas">
+      <li v-for="item in itensParaBaixa" :key="item.chave">
+        <div class="item-previsto-corpo">
+          <span>
+            {{ item.peca?.descricao }}
+            <Tag v-if="item.origem === 'adicional'" severity="warn" value="adicional" style="margin-left:0.3rem;font-size:0.6rem" />
+          </span>
+          <span class="hint">Aprovada: {{ item.quantidade }} · Utilizada: {{ item.quantidade - item.restante }} · <strong :class="{ 'texto-pendente': item.restante > 0 }">Pendente: {{ item.restante }}</strong></span>
+        </div>
+        <Button v-if="podeBaixarPeca && podeMovimentarEstoque && item.restante > 0" label="Registrar utilização" size="small" text @click="registrarUtilizacao(item)" />
+        <Tag v-else-if="item.restante === 0" severity="success" value="totalmente utilizada" style="font-size:0.65rem" />
+      </li>
+    </ul>
+
+    <h4 class="subtitulo-secao">Registrar utilização</h4>
     <div class="form-linha" v-if="podeBaixarPeca && podeMovimentarEstoque && itensParaBaixa.length > 0">
       <Select
         v-model="form.chave"
@@ -54,26 +88,27 @@ async function confirmarBaixa() {
       >
         <template #option="{ option }">
           <Tag v-if="option.origem === 'adicional'" severity="warn" value="adicional" style="margin-right:0.3rem;font-size:0.65rem" />
-          {{ option.descricao }} — {{ option.peca?.descricao }} (restam {{ option.restante }} de {{ option.quantidade }})
+          {{ option.descricao }} — {{ option.peca?.descricao }} (pendente {{ option.restante }} de {{ option.quantidade }})
         </template>
       </Select>
       <InputNumber v-model="form.quantidade" :minFractionDigits="0" :maxFractionDigits="3" placeholder="Qtde" />
-      <Button label="Baixar" size="small" @click="confirmarBaixa" :disabled="!form.chave" />
+      <Button label="Registrar" size="small" @click="confirmarBaixa" :disabled="!form.chave" />
     </div>
     <p v-else-if="podeBaixarPeca && podeMovimentarEstoque && !podeBaixarLivre" class="hint">
-      Nenhum item de peça aprovado (orçamento/adicional) disponível para baixa nesta OS.
+      Nenhum item de peça aprovado (orçamento/adicional) disponível para utilização nesta OS.
     </p>
     <div class="form-linha" v-else-if="podeBaixarPeca && podeMovimentarEstoque">
       <Select v-model="form.peca_id" :options="pecas" optionLabel="descricao" optionValue="id" filter placeholder="Peça" />
       <InputNumber v-model="form.quantidade" :minFractionDigits="0" :maxFractionDigits="3" placeholder="Qtde" />
-      <Button label="Baixar" size="small" @click="confirmarBaixa" />
+      <Button label="Registrar" size="small" @click="confirmarBaixa" />
     </div>
-    <p v-else-if="podeBaixarPeca" class="hint">Baixa de peças só é permitida com a OS em diagnóstico ou execução.</p>
+    <p v-else-if="podeBaixarPeca" class="hint">Registro de utilização só é permitido com a OS em diagnóstico ou execução.</p>
 
+    <h4 class="subtitulo-secao">Utilizadas</h4>
     <div v-if="movimentos.length === 0" class="estado-vazio-card">
       <i class="pi pi-box"></i>
       <div>
-        <strong>Nenhuma peça baixada</strong>
+        <strong>Nenhuma peça utilizada</strong>
         <p>Peças utilizadas nesta OS aparecerão aqui assim que forem baixadas do estoque.</p>
       </div>
     </div>
@@ -104,6 +139,51 @@ async function confirmarBaixa() {
 .hint {
   color: var(--text-muted);
   font-size: 0.85rem;
+}
+.subtitulo-secao {
+  margin: 18px 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-heading);
+}
+.subtitulo-secao:first-child {
+  margin-top: 0;
+}
+.hint-secao {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.lista-previstas {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+.lista-previstas li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border-row, var(--border-panel));
+  font-size: 13px;
+  color: var(--text-body);
+}
+.lista-previstas li:last-child {
+  border-bottom: none;
+}
+.item-previsto-corpo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.texto-pendente {
+  color: var(--warning);
 }
 .estado-vazio-card {
   display: flex;

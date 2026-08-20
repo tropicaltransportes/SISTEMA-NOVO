@@ -37,9 +37,14 @@ select has_function('public', 'rpc_criar_os',
   ARRAY['uuid','tipo_os','uuid','uuid','uuid'],
   'contrato: rpc_criar_os(p_veiculo_id uuid, p_tipo tipo_os, p_orcamento_id uuid, p_solicitacao_id uuid, p_checklist_template_id uuid)')
 union all
+-- ETAPA OS-FLOW-03: rpc_transicionar_os ganhou p_motivo (obrigatório só
+-- para os 2 retrocessos de fase novos — ver 20260819180000/180100 e
+-- BUSINESS_RULES.md BR-053). A versão de 2 parâmetros foi
+-- explicitamente dropada na migration de correção (não coexiste como
+-- overload), então o contrato correto agora é o de 3 parâmetros.
 select has_function('public', 'rpc_transicionar_os',
-  ARRAY['uuid','status_os'],
-  'contrato: rpc_transicionar_os(p_os_id uuid, p_novo_status status_os)')
+  ARRAY['uuid','status_os','text'],
+  'contrato: rpc_transicionar_os(p_os_id uuid, p_novo_status status_os, p_motivo text)')
 union all
 select has_function('public', 'rpc_concluir_os',
   ARRAY['uuid'],
