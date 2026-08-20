@@ -610,7 +610,10 @@ usavam o mesmo padrão (`idempotency_key`) desde a ETAPA 3.
 Operações simultâneas que disputam o mesmo saldo/registro devem preservar consistência transacional.
 
 ## BR-035 — Estados
-**Status:** PROVISÓRIA (máquina de estados do orçamento implementada e determinística na ETAPA 5/P1-B — ver BR-006)
+**Status:** DEFINIDA (máquina de estados do orçamento implementada e
+determinística na ETAPA 5/P1-B, ver BR-006; máquina de estados da OS
+documentada e corrigida na ETAPA OS-FLOW-03, DEV/QA — ver seção
+"Implementação real da OS" abaixo e BR-052/BR-053)
 
 Os estados sugeridos para homologação são:
 
@@ -632,6 +635,29 @@ BR-006). Sem estado `convertido_em_os` dedicado — a existência de uma OS
 não cancelada vinculada (`ordens_servico.orcamento_id`, ver BR-008) já é o
 sinal de conversão; o orçamento continua com seu último status de
 aprovação (histórico correto, não sobrescrito).
+
+**Implementação real da OS (ETAPA OS-FLOW-03):** `status_os` (enum, nunca
+alterado desde `20260806130200_ordens_servico.sql`) = `aberta,
+em_diagnostico, aguardando_aprovacao, em_execucao, aguardando_teste,
+concluida, liberada, reaberta_garantia, cancelada`. Diverge do texto
+hipotético acima (que nunca foi implementado com esses nomes) — a lista
+real é a que vale. Transições permitidas por `rpc_transicionar_os`
+(BR-053 detalha os 2 retrocessos):
+```
+aberta -> em_diagnostico
+em_diagnostico -> aguardando_aprovacao
+em_diagnostico -> em_execucao
+aguardando_aprovacao -> em_execucao
+em_execucao -> aguardando_teste
+aguardando_teste -> em_execucao   (retrocesso, motivo obrigatório)
+em_execucao -> em_diagnostico     (retrocesso, motivo obrigatório)
+```
+`aguardando_teste -> concluida` (`rpc_concluir_os`), `concluida ->
+liberada` (`rpc_liberar_os`), `liberada -> reaberta_garantia` na OS de
+origem quando `rpc_criar_os_garantia` é chamada, e qualquer status ->
+`cancelada` (`rpc_cancelar_os`, BR-049) têm RPC própria, fora de
+`rpc_transicionar_os`. `reaberta_garantia` nunca é alcançado por nenhuma
+transição real além dessa — não é um estado "de trabalho".
 
 ## BR-036 — Cliente interno
 **Status:** DEFINIDA (ETAPA 6/P1-C, Decisão 1 — resolve FIN-010/PEN-001/PEN-002)
@@ -1208,3 +1234,66 @@ agora ignoram OS soft-deleted, do mesmo jeito que a RLS de `SELECT` já
 ignora (`OS-REST-004a/b`, confirmado por teste).
 
 Ver `docs/testing/TEST_REPORT_OS_CANCELAMENTO01.md` (`OS-REST-001..004`).
+
+## BR-052 — Bloqueio de transição/conclusão com apontamento aberto
+**Status:** DEFINIDA (ETAPA OS-FLOW-03, DEV/QA — migration
+`20260819180000_p2e_os_fluxo_transicoes.sql`)
+
+**Regra:** nenhuma transição de fase da OS (`rpc_transicionar_os`, pra
+frente ou de retrocesso — BR-053) nem a conclusão (`rpc_concluir_os`) pode
+acontecer enquanto existir um apontamento aberto (`os_executores.fim is
+null and coalesce(ativo, true)`) para aquela OS. A RPC bloqueia com a
+mensagem "Finalize o apontamento em andamento antes de
+transicionar/concluir esta OS." — o apontamento nunca é fechado
+silenciosamente por essa checagem; quem estiver com o trabalho em
+andamento precisa decidir explicitamente (finalizar o apontamento) antes
+de a OS mudar de fase.
+
+**Por que:** antes desta etapa, uma OS podia chegar em `aguardando_teste`
+(ou até ser concluída) com um apontamento de execução ainda em aberto —
+nenhuma RPC de transição consultava `os_executores`. Auditoria confirmou
+`select 0 rows` em DEV para esse cenário no momento da correção (nenhum
+dado real precisou ser corrigido manualmente).
+
+**Exceção:** o cancelamento formal da OS (`rpc_cancelar_os`, BR-049)
+continua fechando apontamentos abertos automaticamente como parte do seu
+próprio fluxo — é o único caminho formalmente definido para isso, por
+design (cancelar é uma saída de emergência, não uma transição normal).
+
+Ver `docs/testing/TEST_REPORT_OS_FLOW03.md` (`OS-FLOW-001/002`, `OS-AP-003`).
+
+## BR-053 — Retorno controlado de fase (Teste -> Execução, Execução -> Diagnóstico)
+**Status:** DEFINIDA (ETAPA OS-FLOW-03, DEV/QA — migration
+`20260819180000_p2e_os_fluxo_transicoes.sql`)
+
+**Regra:** `rpc_transicionar_os` aceita 2 retrocessos, além das 5
+transições pra frente já existentes: `aguardando_teste -> em_execucao` e
+`em_execucao -> em_diagnostico`. Ambos exigem `p_motivo` (mínimo 5
+caracteres) — sem motivo, a transição é bloqueada com mensagem explícita.
+Ao confirmar, o evento é auditado explicitamente (`registrar_auditoria`,
+além do `mudanca_status` genérico que todo `UPDATE` de status já dispara)
+com `acao='OS_RETORNOU_PARA_EXECUCAO'` ou `'OS_RETORNOU_PARA_DIAGNOSTICO'`,
+guardando status anterior, status novo, motivo, usuário e timestamp.
+
+**O apontamento antigo nunca é reaberto.** O retorno de fase só muda
+`ordens_servico.status` — não toca em `os_executores`. Quando o executor
+retomar o trabalho, um apontamento NOVO é criado normalmente pela tela
+(mesmo INSERT de sempre, `os_executores_insert_proprio`). O histórico de
+apontamentos (inclusive os já fechados antes do retorno) nunca é apagado
+nem alterado — um ciclo Execução -> Teste -> Execução -> Teste pode se
+repetir quantas vezes for operacionalmente necessário, sempre acrescentando
+apontamentos novos.
+
+**`concluida -> teste`/`concluida -> execução` foi avaliado e
+conscientemente NÃO implementado nesta etapa.** Uma OS `concluida` externa
+pode já ter uma cobrança vinculada (`cobranca_origens`) antes de ser
+liberada; desfazer a conclusão sem também revisar/invalidar essa cobrança
+é inseguro e não foi resolvido agora. `liberada` nunca permite retorno
+operacional normal (não está em nenhuma tupla de `v_permitido`, forward
+ou retrocesso — só `rpc_criar_os_garantia` sai de uma OS liberada, e não
+volta o status dela).
+
+**RBAC:** mesmo gate das transições normais (`encarregado`,
+`administrador_tecnico`) — não estendido a `executor`.
+
+Ver `docs/testing/TEST_REPORT_OS_FLOW03.md` (`OS-FLOW-003/004/005/006`).

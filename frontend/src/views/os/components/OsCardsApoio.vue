@@ -9,9 +9,12 @@ defineProps({
   checklistObrigatoriosPendentes: { type: Number, default: 0 },
   pecasCount: { type: Number, default: 0 },
   pecasValor: { type: String, default: '' },
+  pecasAguardandoUtilizacao: { type: Number, default: 0 },
   fotosCount: { type: Number, default: 0 },
-  adicionaisAbertos: { type: Number, default: 0 },
-  adicionaisTotal: { type: Number, default: 0 },
+  adicionaisIdentificados: { type: Number, default: 0 },
+  adicionaisAprovados: { type: Number, default: 0 },
+  adicionaisExecutados: { type: Number, default: 0 },
+  adicionaisAguardandoDecisao: { type: Number, default: 0 },
 })
 
 defineEmits(['abrir-checklist', 'abrir-pecas', 'abrir-fotos', 'abrir-adicionais'])
@@ -28,7 +31,8 @@ defineEmits(['abrir-checklist', 'abrir-pecas', 'abrir-fotos', 'abrir-adicionais'
     <button type="button" class="card-apoio" @click="$emit('abrir-pecas')">
       <span class="card-apoio-titulo">Peças</span>
       <span class="card-apoio-valor">{{ pecasCount }} utilizada(s)</span>
-      <span v-if="pecasValor" class="hint-secundario">{{ pecasValor }}</span>
+      <span v-if="pecasAguardandoUtilizacao > 0" class="card-apoio-alerta">{{ pecasAguardandoUtilizacao }} aguardando utilização</span>
+      <span v-else-if="pecasValor" class="hint-secundario">{{ pecasValor }}</span>
       <span class="card-apoio-link">Ver</span>
     </button>
     <button type="button" class="card-apoio" @click="$emit('abrir-fotos')">
@@ -38,7 +42,9 @@ defineEmits(['abrir-checklist', 'abrir-pecas', 'abrir-fotos', 'abrir-adicionais'
     </button>
     <button type="button" class="card-apoio" @click="$emit('abrir-adicionais')">
       <span class="card-apoio-titulo">Adicionais</span>
-      <span class="card-apoio-valor">{{ adicionaisTotal ? `${adicionaisAbertos} aguardando / ${adicionaisTotal}` : 'Nenhum identificado' }}</span>
+      <span class="card-apoio-valor">{{ adicionaisIdentificados ? `${adicionaisIdentificados} identificado(s)` : 'Nenhum identificado' }}</span>
+      <span v-if="adicionaisIdentificados" class="hint-secundario">{{ adicionaisAprovados }} aprovado(s) · {{ adicionaisExecutados }} executado(s)</span>
+      <span v-if="adicionaisAguardandoDecisao > 0" class="card-apoio-alerta">{{ adicionaisAguardandoDecisao }} aguardando decisão</span>
       <span class="card-apoio-link">Ver</span>
     </button>
   </div>

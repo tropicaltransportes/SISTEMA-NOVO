@@ -43,6 +43,12 @@ const visible = defineModel('visible', { default: false })
 const severidadeStatusAdicional = { aguardando_aprovacao: 'warn', aprovado: 'success', parcialmente_aprovado: 'warn', rejeitado: 'danger' }
 const tagDecisaoItemAdicional = { pendente: 'warn', aprovado: 'success', rejeitado: 'danger' }
 
+// ETAPA OS-FLOW-03 (item 21 do pedido) — deixar explícito que "aprovado"
+// (cliente autorizou) é diferente de "executado" (consumo/execução física
+// já aconteceu) — a coluna Execução mostrava só o valor cru
+// ('pendente'/'executado'/'cancelado'), sem explicar o significado.
+const rotuloExecucaoItemAdicional = { pendente: 'Pendente de utilização', parcial: 'Parcialmente utilizado', executado: 'Executado', cancelado: 'Dispensado' }
+
 // ---------- Identificar necessidade ----------
 const dialogoNovo = ref(false)
 const formNovo = ref({ motivo: '' })
@@ -192,7 +198,7 @@ async function confirmarCancelarAdicional() {
             <td>{{ formatarMoeda(item.valor_total) }}</td>
             <td><Tag :severity="tagDecisaoItemAdicional[item.status_aprovacao]" :value="item.status_aprovacao" /></td>
             <td>{{ item.meio_aprovacao || '—' }}</td>
-            <td><Tag v-if="item.status_aprovacao === 'aprovado'" :severity="item.execucao_status === 'executado' ? 'success' : item.execucao_status === 'cancelado' ? 'danger' : 'warn'" :value="item.execucao_status" /><span v-else class="hint">—</span></td>
+            <td><Tag v-if="item.status_aprovacao === 'aprovado'" :severity="item.execucao_status === 'executado' ? 'success' : item.execucao_status === 'cancelado' ? 'danger' : 'warn'" :value="rotuloExecucaoItemAdicional[item.execucao_status] ?? item.execucao_status" /><span v-else class="hint">—</span></td>
             <td>
               <template v-if="item.status_aprovacao === 'pendente' && podeDecidirAdicional">
                 <Button label="Decidir" size="small" @click="abrirDecisao(item)" />

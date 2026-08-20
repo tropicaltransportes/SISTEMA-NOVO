@@ -20,17 +20,26 @@ const props = defineProps({
   dentroDoPrazoGarantia: Boolean,
   transicoesNaoDanger: { type: Array, default: () => [] },
   itensMenuAcoes: { type: Array, default: () => [] },
+  retrocessosDisponiveis: { type: Array, default: () => [] },
+  apontamentoAberto: Boolean,
   abrirPrazo: { type: Function, required: true },
   confirmarTransicao: { type: Function, required: true },
   concluir: { type: Function, required: true },
   liberar: { type: Function, required: true },
   confirmarAbrirGarantia: { type: Function, required: true },
+  abrirRetornoFase: { type: Function, required: true },
 })
 
 const router = useRouter()
 
 const itensMenuCompleto = computed(() => {
   const lista = []
+  // ETAPA OS-FLOW-03 — BR-053: retorno de fase fica no menu "⋮", nunca como
+  // seletor livre de status (item 10 do pedido). Cada item abre o dialog de
+  // motivo no orquestrador.
+  for (const r of props.retrocessosDisponiveis) {
+    lista.push({ label: r.label, icon: 'pi pi-replay', command: () => props.abrirRetornoFase(r) })
+  }
   if (props.podeGerarCobranca && props.os.status === 'concluida' && props.os.tipo === 'externa') {
     lista.push({
       label: 'Gerar Cobrança',
@@ -79,16 +88,19 @@ function abrirMenu(event) {
 
     <div class="cabecalho-direita">
       <div class="acao-principal">
-        <Button
-          v-for="t in transicoesNaoDanger"
-          :key="t.next"
-          :label="t.label"
-          size="small"
-          :class="{ 'btn-gradiente': transicoesNaoDanger.length === 1 }"
-          :outlined="transicoesNaoDanger.length > 1"
-          @click="confirmarTransicao(t)"
-        />
-        <Button v-if="os.status === 'aguardando_teste'" label="Concluir serviço" size="small" class="btn-gradiente" @click="concluir" />
+        <template v-if="!apontamentoAberto">
+          <Button
+            v-for="t in transicoesNaoDanger"
+            :key="t.next"
+            :label="t.label"
+            size="small"
+            :class="{ 'btn-gradiente': transicoesNaoDanger.length === 1 }"
+            :outlined="transicoesNaoDanger.length > 1"
+            @click="confirmarTransicao(t)"
+          />
+          <Button v-if="os.status === 'aguardando_teste'" label="Concluir serviço" size="small" class="btn-gradiente" @click="concluir" />
+        </template>
+        <span v-else-if="transicoesNaoDanger.length || os.status === 'aguardando_teste'" class="hint-apontamento-aberto">Finalize o apontamento em andamento para avançar de fase</span>
         <Button v-if="os.status === 'concluida'" label="Liberar" size="small" class="btn-gradiente" @click="liberar" />
       </div>
       <Button v-if="itensMenuCompleto.length" icon="pi pi-ellipsis-v" text rounded aria-label="Mais ações" @click="abrirMenu($event)" />
@@ -160,6 +172,10 @@ function abrirMenu(event) {
 .btn-gradiente :deep(.p-button) {
   background: var(--accent-gradient);
   border: none;
+}
+.hint-apontamento-aberto {
+  font-size: 12px;
+  color: var(--warning);
 }
 :deep(.item-menu-destrutivo .p-menu-item-link),
 :deep(.item-menu-destrutivo .p-menu-item-icon),

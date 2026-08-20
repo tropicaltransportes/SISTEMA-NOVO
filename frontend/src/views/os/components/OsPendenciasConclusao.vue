@@ -15,6 +15,7 @@ const props = defineProps({
   osFotos: { type: Array, default: () => [] },
   checklistTemplateAtual: { type: Object, default: null },
   executores: { type: Array, default: () => [] },
+  itensParaBaixa: { type: Array, default: () => [] },
   podeTransicionar: Boolean,
   concluir: { type: Function, required: true },
 })
@@ -46,11 +47,20 @@ const fotosOk = computed(() => fotosFaltando.value.length === 0)
 const adicionaisPendentes = computed(() => props.osAdicionais.filter((a) => a.status === 'aguardando_aprovacao').length)
 const apontamentosAbertos = computed(() => props.executores.filter((e) => e.ativo !== false && !e.fim).length)
 
+// ETAPA OS-FLOW-03 (item 24 do pedido) — distinguir "adicional aguardando
+// DECISÃO" (linha acima) de "peça já aprovada mas ainda não utilizada".
+// itensParaBaixa já vem só com itens aprovados (orçamento/garantia/
+// adicional) + `restante` calculado do ledger de estoque — reflete
+// exatamente o que rpc_concluir_os já bloqueia hoje (status_aprovacao
+// aprovado + execucao_status pendente/parcial), só não aparecia na lista.
+const pecasAprovadasPendentes = computed(() => props.itensParaBaixa.filter((i) => i.restante > 0).length)
+
 const pendencias = computed(() => [
   { label: checklistFaltando.value > 0 ? `${checklistFaltando.value} item(ns) obrigatório(s) do checklist pendente(s)` : 'Checklist obrigatório concluído', ok: checklistOk.value },
   { label: servicosPendentes.value > 0 ? `${servicosPendentes.value} serviço(s) pendente(s)` : 'Serviços executados', ok: servicosPendentes.value === 0 },
   { label: fotosFaltando.value.length > 0 ? `Foto obrigatória faltando: ${fotosFaltando.value.join('/')}` : 'Fotos obrigatórias anexadas', ok: fotosOk.value },
-  { label: adicionaisPendentes.value > 0 ? `${adicionaisPendentes.value} adicional(is) aguardando aprovação` : 'Sem adicionais pendentes', ok: adicionaisPendentes.value === 0 },
+  { label: adicionaisPendentes.value > 0 ? `${adicionaisPendentes.value} adicional(is) aguardando aprovação` : 'Sem adicionais aguardando aprovação', ok: adicionaisPendentes.value === 0 },
+  { label: pecasAprovadasPendentes.value > 0 ? `${pecasAprovadasPendentes.value} peça(s) aprovada(s) ainda não utilizada(s)` : 'Peças aprovadas utilizadas', ok: pecasAprovadasPendentes.value === 0 },
   { label: apontamentosAbertos.value > 0 ? `${apontamentosAbertos.value} apontamento(s) em aberto` : 'Nenhum apontamento aberto', ok: apontamentosAbertos.value === 0 },
 ])
 
