@@ -44,7 +44,12 @@ async function carregar() {
   const { data, error } = await supabase.rpc('rpc_documento_final_os', { p_os_id: osId.value })
   if (error) {
     erro.value = true
-    toast.add({ severity: 'error', summary: 'Erro ao carregar documento da OS', detail: error.message, life: 6000 })
+    // BUG-OS-DOC-02 item 15: detalhe técnico (ex. erro de schema/RPC do
+    // PostgREST) fica só no console — o usuário final nunca vê texto de
+    // erro de banco/API, só a mensagem genérica já exibida no corpo da
+    // página (documento-erro).
+    console.error('Falha ao carregar rpc_documento_final_os:', error)
+    toast.add({ severity: 'error', summary: 'Não foi possível carregar o documento desta OS.', life: 6000 })
     carregando.value = false
     return
   }
@@ -126,7 +131,8 @@ const linhasOperacionais = computed(() => {
 
     <div v-if="carregando" class="documento-papel documento-estado">Carregando...</div>
     <div v-else-if="erro" class="documento-papel documento-estado documento-erro">
-      Não foi possível carregar o documento desta OS.
+      <p>Não foi possível carregar o documento desta OS.</p>
+      <Button label="Tentar novamente" icon="pi pi-refresh" size="small" outlined @click="carregar" />
     </div>
 
     <div v-else-if="d" class="documento-papel">
@@ -211,6 +217,9 @@ const linhasOperacionais = computed(() => {
 .documento-erro {
   color: #b91c1c;
   font-weight: 600;
+}
+.documento-erro p {
+  margin: 0 0 14px;
 }
 
 .doc-bloco-titulo {
