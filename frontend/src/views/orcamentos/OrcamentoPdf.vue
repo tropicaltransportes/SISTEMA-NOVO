@@ -5,7 +5,7 @@
 // versão nova (rpc_criar_versao_orcamento nunca edita a versão anterior).
 // "PDF" aqui é o navegador imprimindo esta página (Ctrl+P / botão) —
 // mecanismo adequado à arquitetura atual (sem dependência nova no
-// frontend), conforme permitido pela instrução do item 1.
+// frontend), conforme permitido pela instrução item 1.
 //
 // ETAPA UX-PDF-ORCAMENTO-01 — redesign comercial (layout apenas; nenhum
 // cálculo, regra de negócio, aprovação, versionamento ou permissão foi
@@ -17,15 +17,25 @@
 // duas ações distintas. O "Baixar PDF" nunca herda URL/data-hora/título de
 // aba/numeração que o navegador injeta sozinho, porque não usa esse
 // mecanismo — ver docs/testing/BUG_PDF_EXPORT_02_REPORT.md.
+//
+// ETAPA DOC-OS-FINAL-01 — cabeçalho/bloco cliente-veículo/tabela de
+// itens/resumo financeiro/rodapé foram extraídos para
+// components/documentos/Doc*.vue, compartilhados com o novo documento final
+// da OS (OsDocumentoFinal.vue) — item 37 do pedido ("criar linguagem
+// documental comum", não duplicar CSS. Nenhum dado/cálculo/regra mudou
+// aqui, é refatoração puramente estrutural.
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { supabase } from '../../lib/supabaseClient'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
-import Tag from 'primevue/tag'
 import { STATUS_ORCAMENTO } from '../../constants/statusVisual'
-import BrandLogo from '../../components/brand/BrandLogo.vue'
 import { gerarPdfOrcamento, nomeArquivoOrcamento } from '../../lib/pdfOrcamento.js'
+import DocCabecalho from '../../components/documentos/DocCabecalho.vue'
+import DocBlocoClienteVeiculo from '../../components/documentos/DocBlocoClienteVeiculo.vue'
+import DocTabelaItens from '../../components/documentos/DocTabelaItens.vue'
+import DocResumoFinanceiro from '../../components/documentos/DocResumoFinanceiro.vue'
+import DocRodape from '../../components/documentos/DocRodape.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -35,10 +45,6 @@ const d = ref(null)
 const carregando = ref(true)
 const erro = ref(false)
 
-function formatarMoeda(v) {
-  if (v === null || v === undefined) return '—'
-  return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-}
 // item 6 da instrução: "Emissão: 14/08/2026" — sem hora/segundos no PDF
 // comercial (o timestamp completo continua preservado em orcamentos.criado_em
 // no banco/auditoria; aqui só a apresentação é reduzida a data).
@@ -132,22 +138,39 @@ const itensMaoObra = computed(() => (d.value?.itens ?? []).filter((i) => i.natur
 const subtotalPecas = computed(() => itensPecas.value.reduce((s, i) => s + Number(i.valor_total_original ?? 0), 0))
 const subtotalMaoObra = computed(() => itensMaoObra.value.reduce((s, i) => s + Number(i.valor_total_original ?? 0), 0))
 
+// DocTabelaItens espera `valor_total` — orcamento_itens expõe
+// `valor_total_original` (nome histórico desta RPC); só remapeia o rótulo do
+// campo, nenhum valor muda.
+function paraTabela(itens) {
+  return itens.map((i) => ({ id: i.id, descricao: i.descricao, quantidade: i.quantidade, valor_unitario: i.valor_unitario, valor_total: i.valor_total_original }))
+}
+const itensPecasTabela = computed(() => paraTabela(itensPecas.value))
+const itensMaoObraTabela = computed(() => paraTabela(itensMaoObra.value))
+
+const linhasResumo = computed(() => {
+  if (!d.value) return []
+  const o = d.value.orcamento
+  const linhas = []
+  if (itensPecas.value.length) linhas.push({ label: 'Subtotal Peças', valor: subtotalPecas.value })
+  if (itensMaoObra.value.length) linhas.push({ label: 'Subtotal Mão de Obra', valor: subtotalMaoObra.value })
+  linhas.push({ label: 'Valor bruto', valor: o.valor_bruto, separador: true })
+  if (o.desconto_valor > 0) {
+    linhas.push({
+      label: `Desconto (${o.desconto_percentual}%)`,
+      valor: -o.desconto_valor,
+      hint: o.desconto_motivo || null,
+    })
+  }
+  linhas.push({ label: 'Valor total', valor: o.valor_liquido, destaque: true })
+  return linhas
+})
+
 // item 3/27 — status especial "cancelado" ganha faixa própria em vez do tag
 // normal. item 2/40 — "Rascunho" nunca aparece no PDF comercial (documento
 // não deveria circular externamente nesse estado; quando ocorre visualização
 // interna, simplesmente omitimos o rótulo em vez de inventar um substituto).
 const cancelado = computed(() => d.value?.orcamento?.status === 'cancelado')
 const mostrarTagStatus = computed(() => d.value && !cancelado.value && d.value.orcamento.status !== 'rascunho')
-
-// Quebra "Tropical Transportes — Oficina Mecânica" (string real, vinda de
-// d.empresa.nome) em 2 linhas só para hierarquia visual do letterhead —
-// não altera nem inventa o texto, só onde a linha quebra.
-const linhasEmpresa = computed(() => {
-  const nome = d.value?.empresa?.nome
-  if (!nome) return []
-  const partes = nome.split(' — ')
-  return partes.length === 2 ? partes : [nome]
-})
 </script>
 
 <template>
@@ -182,115 +205,35 @@ const linhasEmpresa = computed(() => {
     </div>
 
     <div v-else-if="d" class="documento-papel">
-      <div v-if="cancelado" class="faixa-cancelado">ORÇAMENTO CANCELADO</div>
+      <DocCabecalho
+        tipo-documento="Orçamento"
+        :numero="d.orcamento.numero_legivel"
+        :linha-secundaria="`Versão ${d.orcamento.versao}`"
+        :mostrar-status="mostrarTagStatus"
+        :status-label="STATUS_ORCAMENTO[d.orcamento.status]?.label ?? d.orcamento.status"
+        :status-severidade="STATUS_ORCAMENTO[d.orcamento.status]?.severidade"
+        :emitido-label="`Emissão: ${formatarDataSomente(d.orcamento.criado_em)}`"
+        :faixa-especial="cancelado ? 'ORÇAMENTO CANCELADO' : null"
+      />
 
-      <header class="doc-cabecalho">
-        <!-- ETAPA BRAND-01 — logo horizontal oficial (fundo claro). Já traz
-             "Tropical TRANSPORTES" na própria imagem, então não repete o
-             nome como texto ao lado (item 8 da instrução) — só o setor,
-             tipograficamente separado da marca. -->
-        <div class="doc-marca">
-          <BrandLogo variant="horizontal" surface="light" :size="40" />
-          <span class="doc-marca-setor">Oficina Mecânica</span>
-        </div>
-        <div class="doc-numero">
-          <span class="doc-titulo-tipo">Orçamento</span>
-          <span class="doc-numero-valor">{{ d.orcamento.numero_legivel }}</span>
-          <span class="doc-versao">Versão {{ d.orcamento.versao }}</span>
-        </div>
-      </header>
+      <DocBlocoClienteVeiculo :cliente="d.cliente" :veiculo="d.veiculo" />
 
-      <div class="doc-status-linha">
-        <Tag v-if="mostrarTagStatus" :severity="STATUS_ORCAMENTO[d.orcamento.status]?.severidade" :value="STATUS_ORCAMENTO[d.orcamento.status]?.label ?? d.orcamento.status" />
-        <span class="doc-emitido">Emissão: {{ formatarDataSomente(d.orcamento.criado_em) }}</span>
-      </div>
+      <DocTabelaItens
+        v-if="itensPecasTabela.length"
+        titulo="Peças"
+        rotulo-coluna="Item"
+        :itens="itensPecasTabela"
+        :subtotal="subtotalPecas"
+      />
+      <DocTabelaItens
+        v-if="itensMaoObraTabela.length"
+        titulo="Mão de Obra"
+        rotulo-coluna="Serviço"
+        :itens="itensMaoObraTabela"
+        :subtotal="subtotalMaoObra"
+      />
 
-      <div class="doc-blocos">
-        <div class="doc-bloco">
-          <span class="doc-bloco-titulo">Cliente</span>
-          <p class="doc-bloco-linha-principal">{{ d.cliente.nome }}</p>
-          <p v-if="d.cliente.documento" class="doc-bloco-linha">Documento: {{ d.cliente.documento }}</p>
-          <p v-if="d.cliente.telefone" class="doc-bloco-linha">Telefone: {{ d.cliente.telefone }}</p>
-          <p v-if="d.cliente.email" class="doc-bloco-linha">E-mail: {{ d.cliente.email }}</p>
-        </div>
-        <div class="doc-bloco">
-          <span class="doc-bloco-titulo">Veículo</span>
-          <p class="doc-bloco-linha-principal">
-            {{ d.veiculo.placa }} <span v-if="d.veiculo.prefixo">({{ d.veiculo.prefixo }})</span>
-          </p>
-          <p v-if="d.veiculo.modelo" class="doc-bloco-linha">{{ d.veiculo.modelo }}<span v-if="d.veiculo.ano"> / {{ d.veiculo.ano }}</span></p>
-        </div>
-      </div>
-
-      <div v-if="itensPecas.length" class="doc-secao-itens">
-        <span class="doc-bloco-titulo">Peças</span>
-        <table class="tabela-relatorio">
-          <thead>
-            <tr><th>Item</th><th>Qtde</th><th>Valor Unit.</th><th>Subtotal</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="i in itensPecas" :key="i.id">
-              <td>{{ i.descricao }}</td>
-              <td>{{ i.quantidade }}</td>
-              <td class="valor">{{ formatarMoeda(i.valor_unitario) }}</td>
-              <td class="valor">{{ formatarMoeda(i.valor_total_original) }}</td>
-            </tr>
-          </tbody>
-          <tfoot>
-            <tr class="linha-subtotal">
-              <td colspan="3">Subtotal Peças</td>
-              <td class="valor">{{ formatarMoeda(subtotalPecas) }}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-
-      <div v-if="itensMaoObra.length" class="doc-secao-itens">
-        <span class="doc-bloco-titulo">Mão de Obra</span>
-        <table class="tabela-relatorio">
-          <thead>
-            <tr><th>Serviço</th><th>Qtde</th><th>Valor Unit.</th><th>Subtotal</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="i in itensMaoObra" :key="i.id">
-              <td>{{ i.descricao }}</td>
-              <td>{{ i.quantidade }}</td>
-              <td class="valor">{{ formatarMoeda(i.valor_unitario) }}</td>
-              <td class="valor">{{ formatarMoeda(i.valor_total_original) }}</td>
-            </tr>
-          </tbody>
-          <tfoot>
-            <tr class="linha-subtotal">
-              <td colspan="3">Subtotal Mão de Obra</td>
-              <td class="valor">{{ formatarMoeda(subtotalMaoObra) }}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-
-      <div class="doc-resumo">
-        <span class="doc-bloco-titulo">Resumo financeiro</span>
-        <div v-if="itensPecas.length" class="doc-resumo-linha">
-          <span>Subtotal Peças</span>
-          <span>{{ formatarMoeda(subtotalPecas) }}</span>
-        </div>
-        <div v-if="itensMaoObra.length" class="doc-resumo-linha">
-          <span>Subtotal Mão de Obra</span>
-          <span>{{ formatarMoeda(subtotalMaoObra) }}</span>
-        </div>
-        <div class="doc-resumo-linha doc-resumo-separador">
-          <span>Valor bruto</span>
-          <span>{{ formatarMoeda(d.orcamento.valor_bruto) }}</span>
-        </div>
-        <div class="doc-resumo-linha" v-if="d.orcamento.desconto_valor > 0">
-          <span>Desconto ({{ d.orcamento.desconto_percentual }}%)<span v-if="d.orcamento.desconto_motivo" class="hint"> — {{ d.orcamento.desconto_motivo }}</span></span>
-          <span>-{{ formatarMoeda(d.orcamento.desconto_valor) }}</span>
-        </div>
-        <div class="doc-resumo-linha doc-resumo-total">
-          <span>Valor total</span>
-          <span>{{ formatarMoeda(d.orcamento.valor_liquido) }}</span>
-        </div>
-      </div>
+      <DocResumoFinanceiro :linhas="linhasResumo" />
 
       <div class="doc-condicoes">
         <span class="doc-bloco-titulo">Condições comerciais</span>
@@ -298,17 +241,10 @@ const linhasEmpresa = computed(() => {
         <p class="doc-condicoes-linha">Serviços adicionais identificados após o início da execução serão registrados e submetidos à aprovação antes de serem realizados.</p>
       </div>
 
-      <footer class="doc-rodape">
-        <!-- BUG-PDF-EXPORT-02 item 6 — rodapé simplificado, mesma estrutura
-             do PDF vetorial gerado por gerarPdfOrcamento (lib/pdfOrcamento.js),
-             pra tela/impressão/download parecerem o mesmo documento. Removida
-             a frase "Estamos à disposição..." (conteúdo redundante). Nomes
-             vêm de d.empresa.nome (dado real), nunca hardcoded. -->
-        <p class="doc-rodape-marca">{{ linhasEmpresa[0] }}</p>
-        <p class="doc-rodape-frase" v-if="linhasEmpresa[1]">{{ linhasEmpresa[1] }}</p>
-        <p class="doc-rodape-identificacao">Documento emitido eletronicamente</p>
-        <p class="doc-rodape-identificacao">{{ d.orcamento.numero_legivel }} • Versão {{ d.orcamento.versao }}</p>
-      </footer>
+      <DocRodape
+        :nome-empresa="d.empresa?.nome ?? ''"
+        :identificador="`${d.orcamento.numero_legivel} • Versão ${d.orcamento.versao}`"
+      />
     </div>
   </div>
 </template>
@@ -357,91 +293,6 @@ const linhasEmpresa = computed(() => {
   font-weight: 600;
 }
 
-/* item 3/27 — faixa discreta de cancelamento, não some o conteúdo nem
-   recalcula nada, só sinaliza. */
-.faixa-cancelado {
-  position: absolute;
-  top: 22px;
-  right: -46px;
-  width: 200px;
-  transform: rotate(40deg);
-  text-align: center;
-  background: #dc2626;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
-  padding: 5px 0;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
-  z-index: 1;
-}
-
-.doc-cabecalho {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  padding-bottom: 14px;
-  border-bottom: 2px solid var(--brand-branco-gelo);
-  margin-bottom: 14px;
-}
-.doc-marca {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.doc-marca-setor {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  color: #6b7280;
-}
-.doc-numero {
-  text-align: right;
-  display: flex;
-  flex-direction: column;
-}
-.doc-titulo-tipo {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  color: #1f2430;
-}
-.doc-numero-valor {
-  font-family: var(--font-mono);
-  font-weight: 700;
-  font-size: 16px;
-  color: var(--brand-verde-escuro);
-  letter-spacing: 0.2px;
-  margin-top: 2px;
-}
-.doc-versao {
-  font-size: 12px;
-  color: #6b7280;
-  margin-top: 2px;
-}
-
-.doc-status-linha {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 18px;
-}
-.doc-emitido {
-  font-size: 12.5px;
-  color: #6b7280;
-}
-
-.doc-blocos {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
-  margin-bottom: 20px;
-  break-inside: avoid;
-  page-break-inside: avoid;
-}
 .doc-bloco-titulo {
   display: block;
   font-size: 11px;
@@ -452,128 +303,6 @@ const linhasEmpresa = computed(() => {
   margin-bottom: 8px;
   break-after: avoid;
   page-break-after: avoid;
-}
-.doc-bloco-linha-principal {
-  margin: 0 0 2px;
-  font-weight: 600;
-  font-size: 14px;
-  color: #1f2430;
-}
-.doc-bloco-linha {
-  margin: 0;
-  font-size: 12.5px;
-  color: #6b7280;
-}
-
-.doc-secao-itens {
-  margin-bottom: 18px;
-  break-inside: avoid;
-  page-break-inside: avoid;
-}
-
-.tabela-relatorio {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 0;
-}
-.tabela-relatorio th,
-.tabela-relatorio td {
-  text-align: left;
-  padding: 0.55rem 0.6rem;
-  border-bottom: 1px solid #e5e7eb;
-  font-size: 0.85rem;
-}
-.tabela-relatorio th {
-  background: var(--brand-branco-gelo);
-  color: var(--brand-verde-escuro);
-  font-weight: 600;
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-}
-.tabela-relatorio tbody tr {
-  break-inside: avoid;
-  page-break-inside: avoid;
-}
-.tabela-relatorio td.valor,
-.tabela-relatorio th:nth-child(2),
-.tabela-relatorio th:nth-child(3),
-.tabela-relatorio th:nth-child(4) {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-.tabela-relatorio tbody td:nth-child(2) {
-  text-align: right;
-}
-.linha-subtotal td {
-  border-bottom: none;
-  border-top: 1.5px solid rgba(6, 119, 43, 0.25);
-  font-weight: 700;
-  color: #1f2430;
-  padding-top: 0.6rem;
-}
-.linha-subtotal td:first-child {
-  text-align: right;
-  color: #6b7280;
-  font-weight: 600;
-  text-transform: uppercase;
-  font-size: 0.72rem;
-  letter-spacing: 0.3px;
-}
-
-.doc-resumo {
-  margin-left: auto;
-  max-width: 340px;
-  margin-bottom: 18px;
-  break-inside: avoid;
-  page-break-inside: avoid;
-}
-.doc-resumo-linha {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 3px 0;
-  font-size: 12.5px;
-  color: #374151;
-}
-.doc-resumo-linha .hint {
-  display: block;
-  font-size: 11px;
-}
-.doc-resumo-separador {
-  border-top: 1px solid #e5e7eb;
-  margin-top: 4px;
-  padding-top: 6px;
-}
-/* BUG-PDF-EXPORT-02 item 5 — VALOR TOTAL vira o elemento principal do
-   resumo (era só um pouco maior que as outras linhas: 17px vs 13px). Ganha
-   caixa destacada com fundo verde-gelo, igual em espírito ao chip de
-   status já usado no cabeçalho, pra parar de disputar atenção com as
-   linhas de subtotal/desconto acima. */
-.doc-resumo-total {
-  margin-top: 8px;
-  padding: 10px 14px;
-  border-radius: 8px;
-  background: var(--brand-branco-gelo);
-  align-items: baseline;
-  font-weight: 700;
-  font-size: 20px;
-  color: #1f2430;
-}
-.doc-resumo-total span:first-child {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  color: var(--brand-verde-escuro);
-}
-.doc-resumo-total span:last-child {
-  color: var(--brand-verde-escuro);
-}
-
-.hint {
-  color: #6b7280;
-  font-size: 0.85rem;
 }
 
 .doc-condicoes {
@@ -586,32 +315,6 @@ const linhasEmpresa = computed(() => {
   font-size: 12px;
   color: #4b5563;
   line-height: 1.5;
-}
-
-.doc-rodape {
-  border-top: 1px solid var(--brand-branco-gelo);
-  padding-top: 14px;
-  break-inside: avoid;
-  page-break-inside: avoid;
-}
-.doc-rodape-marca {
-  margin: 0;
-  font-weight: 600;
-  font-size: 13px;
-  color: #1f2430;
-}
-.doc-rodape-frase {
-  margin: 2px 0 8px;
-  font-size: 12px;
-  color: #6b7280;
-}
-.doc-rodape-identificacao {
-  margin: 0 0 2px;
-  font-size: 10.5px;
-  color: #9ca3af;
-}
-.doc-rodape-identificacao:last-child {
-  margin-bottom: 0;
 }
 
 @media print {
@@ -635,12 +338,6 @@ const linhasEmpresa = computed(() => {
 @media (max-width: 640px) {
   .documento-papel {
     padding: 24px 20px;
-  }
-  .doc-blocos {
-    grid-template-columns: 1fr;
-  }
-  .doc-resumo {
-    max-width: none;
   }
 }
 </style>
