@@ -50,6 +50,11 @@ const itensMenuCompleto = computed(() => {
   if (props.dentroDoPrazoGarantia && props.podeAbrirGarantia) {
     lista.push({ label: 'Abrir Garantia', icon: 'pi pi-shield', command: () => props.confirmarAbrirGarantia() })
   }
+  if (['concluida', 'liberada', 'reaberta_garantia'].includes(props.os.status)) {
+    // ETAPA DOC-OS-FINAL-01 — documento comercial (view/imprimir/baixar PDF),
+    // distinto do relatório de encerramento abaixo (uso interno).
+    lista.push({ label: 'Documento Final', icon: 'pi pi-file-pdf', command: () => router.push('/os/' + props.osId + '/documento') })
+  }
   if (['concluida', 'liberada'].includes(props.os.status)) {
     lista.push({ label: 'Relatório de Encerramento', icon: 'pi pi-file', command: () => router.push('/os/' + props.osId + '/relatorio-encerramento') })
   }

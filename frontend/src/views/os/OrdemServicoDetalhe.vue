@@ -948,6 +948,11 @@ watch(osId, carregar, { immediate: true })
       <p v-if="dataConclusaoOS">Concluído em {{ new Date(dataConclusaoOS).toLocaleString('pt-BR') }}.</p>
       <p v-if="executoresUnicos.length">Executores: {{ executoresUnicos.join(', ') }}</p>
       <p class="hint">Próxima etapa: liberação{{ os.tipo === 'externa' ? ' e cobrança' : '' }}.</p>
+      <!-- ETAPA DOC-OS-FINAL-01 — item 55: documento comercial disponível
+           assim que a OS conclui, sem depender de já existir cobrança. -->
+      <div class="acoes-documento-final">
+        <Button label="Visualizar OS" icon="pi pi-file-pdf" size="small" outlined @click="router.push('/os/' + osId + '/documento')" />
+      </div>
     </div>
 
     <OsServicos
@@ -1193,6 +1198,9 @@ watch(osId, carregar, { immediate: true })
   margin: 0 0 6px;
   font-size: 13px;
   color: var(--text-body);
+}
+.acoes-documento-final {
+  margin-top: 10px;
 }
 .checklist {
   list-style: none;

@@ -121,6 +121,13 @@ const routes = [
         component: () => import('../views/os/OsRelatorioGarantia.vue'),
       },
       {
+        // ETAPA DOC-OS-FINAL-01: documento comercial de conclusão da OS
+        // (distinto do relatório de encerramento acima, que é interno).
+        path: 'os/:id/documento',
+        name: 'os-documento-final',
+        component: () => import('../views/os/OsDocumentoFinal.vue'),
+      },
+      {
         path: 'vendas-avulsas',
         name: 'vendas-avulsas',
         component: () => import('../views/vendas/VendaAvulsaView.vue'),
