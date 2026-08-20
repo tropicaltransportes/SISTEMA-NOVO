@@ -2,8 +2,21 @@
 
 Data: 2026-08-20. Escopo: correção de regra de negócio na máquina de
 estados da OS + reorganização de apresentação (aprovado ≠ utilizado).
-**DEV/QA apenas** (`jzjbiejmcaygwycvqggm`) — nada foi promovido a
-produção nesta etapa, conforme pedido explícito.
+Implementado e homologado em **DEV/QA** (`jzjbiejmcaygwycvqggm`),
+conforme pedido explícito ("não promover automaticamente para
+produção").
+
+**Atualização pós-implementação:** o hook de auto-commit/push deste
+ambiente publicou o frontend em produção sem coordenação (mesma causa
+raiz do incidente de 19/08 — merge automático em `main` dispara
+`deploy.yml`), quebrando toda transição de status de OS em produção
+(`rpc_transicionar_os` de produção ainda tinha a assinatura antiga de 2
+parâmetros). Autorizado pelo dono do projeto, as 2 migrations desta
+etapa foram promovidas em caráter emergencial em 2026-08-20 pra
+realinhar produção com o frontend já publicado — ver
+`docs/ENVIRONMENTS.md`, seção "Promoção emergencial de 2026-08-20".
+Produção está, portanto, **também** com a regra do OS-FLOW-03 ativa,
+mais cedo do que planejado.
 
 ## FASES REAIS
 

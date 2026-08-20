@@ -22,7 +22,7 @@ rodadas RC1/RC2 já foi executado nesta rodada — ver
 | **Criado em** | 2026-08-12T19:58:37Z (pelo dono do projeto, antes desta rodada) |
 | **Status** | ACTIVE_HEALTHY |
 | **Papel** | **PRODUÇÃO** |
-| **Migrations aplicadas** | 55/55, local == remote (`npx supabase migration list --project-ref wtxbodhqyasdlmyoyjur`). As últimas 4 (`20260818170000`..`20260818170300`, FEATURE-OS-CANCELAMENTO-01) foram promovidas em caráter emergencial em 2026-08-19 — ver seção "Promoção emergencial" abaixo. |
+| **Migrations aplicadas** | 57/57, local == remote (`npx supabase migration list --project-ref wtxbodhqyasdlmyoyjur`). As 4 de `20260818170000`..`20260818170300` (FEATURE-OS-CANCELAMENTO-01) foram promovidas em caráter emergencial em 2026-08-19; as 2 de `20260819180000`/`20260819180100` (OS-FLOW-03) foram promovidas em caráter emergencial em 2026-08-20 — ver seção "Promoção emergencial" abaixo (2 incidentes). |
 | **Massa QA** | Nenhuma — projeto nasceu vazio, `supabase/seed.sql` nunca foi executado contra ele (nem pode ser: `db push` não roda seed, só `db reset`, e `db reset` nunca foi usado aqui) |
 | **Admin inicial** | Hammed de Carvalho Gurgel (`hammedgurgel@tropicaltransportes.com.br`), convidado via Supabase Auth Admin API (`/auth/v1/invite`), perfil `administrador_tecnico`, `ativo=true`. Convite enviado, ainda **não aceito** (sem senha definida) na data deste documento. |
 | **Configuração administrativa** | 5/6 itens de `rpc_status_configuracao_sistema()` = CONFIGURADO (custo/hora R$50/h, desconto 20% teto, anexos 15MB jpeg/png/webp/pdf, 3 centros de custo). `checklist_template` = PENDENTE, por decisão do dono (ele criará os templates depois). |
@@ -63,6 +63,53 @@ produção a qualquer momento. Vale considerar, em rodada futura: (a) um
 gate manual antes do deploy de produção, ou (b) checar programaticamente
 que `supabase migration list --project-ref wtxbodhqyasdlmyoyjur` está em
 dia antes de publicar.
+
+### Promoção emergencial de 2026-08-20 (OS-FLOW-03)
+
+**Achado real, fora do roteiro — mesma causa raiz do incidente de
+2026-08-19, desta vez sem intervenção de terceiros:** o hook de
+auto-commit/push deste ambiente comitou, deu push e teve PR
+auto-mergeada em `main` (PR #33) ao final da sessão de trabalho da
+ETAPA OS-FLOW-03 — incluindo o frontend que chama `rpc_transicionar_os`
+com um 3º parâmetro (`p_motivo`). O pedido original era **explícito**:
+implementar só em DEV/QA, não promover a produção. O hook não distingue
+isso — qualquer coisa que chegue em `main` é publicada.
+
+Isso disparou `deploy.yml` automaticamente, publicando o frontend novo em
+produção **sem** as migrations correspondentes
+(`20260819180000`/`20260819180100`) terem sido aplicadas lá. Confirmado
+via chamada real (papel anon, UUID falso, sem risco de mutação):
+```
+POST rpc_transicionar_os(p_os_id, p_novo_status, p_motivo)
+→ PGRST202: função não encontrada com esses parâmetros
+```
+**Toda transição de status de OS ficou quebrada em produção** (não só o
+retorno de fase novo — qualquer transição, porque o frontend sempre
+manda `p_motivo` agora, mesmo `null`).
+
+O dono do projeto foi consultado e **autorizou explicitamente** a
+promoção emergencial das 2 migrations para realinhar produção com o
+frontend já publicado — mesmo racional do incidente anterior: não foi
+decisão de pular homologação, foi resposta a uma quebra real já ao vivo,
+com a etapa já 16/16 pgTAP + 218/218 regressão verde em DEV/QA antes da
+promoção. Aplicado via
+`npx supabase db push --project-ref wtxbodhqyasdlmyoyjur --linked`,
+confirmado com a mesma chamada de teste retornando o erro de permissão
+normal (`P0001: Perfil sem permissão`, não mais `PGRST202`), 57/57
+local == remote depois.
+
+**Efeito colateral aceito:** a regra de negócio do OS-FLOW-03 (bloqueio
+de transição/conclusão com apontamento aberto, retorno controlado de
+fase) passou a valer em produção também, antes do previsto — não havia
+como restaurar o frontend antigo sem reverter o merge em `main` (opção
+não escolhida).
+
+**Este é o SEGUNDO incidente idêntico em 2 dias** (19/08 e 20/08), mesma
+causa raiz do risco já registrado acima: `deploy.yml` sem gate de schema
++ hook de auto-commit/push/PR/merge que não distingue "só DEV/QA" de
+"pronto pra produção". Recomendação forte, ainda não implementada:
+bloquear ou revisar esse hook antes de qualquer próxima etapa que deva
+ficar restrita a DEV/QA — do contrário, o padrão vai se repetir.
 
 ### Como desativar um usuário em produção (procedimento operacional — AUT-007)
 
