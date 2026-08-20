@@ -1,7 +1,7 @@
 # TEST_REPORT_OS_DOCUMENTO_FINAL01 — Documento Final da OS (com PDF de valores executados)
 
-**Data:** 2026-08-20
-**Ambiente testado:** DEV/QA (`jzjbiejmcaygwycvqggm`) — nenhuma alteração aplicada em produção (`wtxbodhqyasdlmyoyjur`).
+**Data:** 2026-08-20 (implementação) / 2026-08-20 (BUG-OS-DOC-02, ver adenda no final)
+**Ambiente testado:** DEV/QA (`jzjbiejmcaygwycvqggm`) na implementação original; produção (`wtxbodhqyasdlmyoyjur`) recebeu a migration `20260820190000` na correção do BUG-OS-DOC-02 (adenda abaixo), com autorização explícita do usuário.
 **Escopo:** ETAPA DOC-OS-FINAL-01 — documento comercial de conclusão da OS, equivalente em identidade visual ao PDF de orçamento já homologado, mostrando o que foi *efetivamente* executado (não o que foi aprovado).
 
 ## Resumo executivo
@@ -86,3 +86,59 @@ Novos arquivos específicos da OS: `frontend/src/views/os/OsDocumentoFinal.vue`,
 - Seção "Garantia" não pôde ser confirmada visualmente contra uma OS `liberada` real (nenhuma disponível com dados adequados no momento do teste) — validada por leitura de código/lógica condicional apenas.
 - Cabeçalho compacto repetido por página / numeração "Página X/Y" — mesma limitação técnica já documentada no orçamento (CSS puro de impressão do navegador não suporta hoje).
 - Nenhuma alteração foi aplicada em produção (`wtxbodhqyasdlmyoyjur`) — migration e testes rodaram só contra DEV/QA, conforme escopo de segurança combinado antes de iniciar (histórico de 3 incidentes de produção pela mesma causa raiz nos últimos 4 dias).
+
+---
+
+## ADENDA — BUG-OS-DOC-02: "rpc_documento_final_os não encontrada no banco"
+
+**Sintoma reportado:** ao abrir o documento final de uma OS, a tela mostrava "Não foi possível carregar o documento desta OS." e o Supabase retornava `PGRST202 — Could not find the function public.rpc_documento_final_os(p_os_id) in the schema cache`.
+
+### CAUSA RAIZ
+
+**Não foi mismatch de assinatura, e não foi cache do PostgREST em DEV/QA (ambos descartados por evidência, não por suposição).** A causa real foi um 4º incidente da mesma cadeia já documentada no projeto (17/08, 19/08, 20/08): o mecanismo de auto-commit/auto-merge deste ambiente commitou (`a0b52b7`, 16:39:18) e mergeou via PR #35 (`b236080`, 16:39:45 — 27s depois) todo o trabalho de DOC-OS-FINAL-01 direto em `main`, sem confirmação explícita nesta conversa. `main` dispara `.github/workflows/deploy.yml` a cada push, **sem nenhum gate de schema/migration** — o frontend novo (incluindo a rota `os-documento-final`) foi automaticamente publicado em `https://tropicaltransportes.github.io/SISTEMA-NOVO/` (confirmado buscando o bundle publicado e achando o chunk `OsDocumentoFinal`/string `os-documento-final` nele). A migration `20260820190000_p3_doc_os_final01.sql`, por decisão de escopo deliberada e registrada nesta mesma etapa, só tinha sido aplicada em DEV/QA — nunca em produção. Resultado: frontend de produção chamando uma RPC que genuinely não existia no banco de produção.
+
+### BANCO CONECTADO / MIGRATION
+
+| | |
+|---|---|
+| MIGRATION LOCAL | `supabase/migrations/20260820190000_p3_doc_os_final01.sql` — existe no repositório |
+| BANCO DEV/QA (`jzjbiejmcaygwycvqggm`) | `20260820190000` aplicada (`local == remote`, confirmado via `supabase migration list`) |
+| BANCO DE PRODUÇÃO (`wtxbodhqyasdlmyoyjur`), ANTES da correção | `20260820190000` **ausente** (`remote: ""`) — única migration faltante em toda a lista, nenhuma outra divergência |
+| BANCO CONECTADO PELA APLICAÇÃO | `frontend/.env` (dev local) → DEV/QA; `frontend/.env.production` (usado pelo `npm run build` do `deploy.yml`, é o que está publicado) → **produção** — confirmado lendo os dois arquivos e confirmando que o site publicado usa a URL/anon key de produção |
+
+### ASSINATURA FRONTEND vs BANCO
+
+Frontend (`OsDocumentoFinal.vue`): `supabase.rpc('rpc_documento_final_os', { p_os_id: osId.value })`.
+Banco (ambos os ambientes, consultado via `pg_get_function_identity_arguments`): `rpc_documento_final_os(p_os_id uuid) returns jsonb`, `security invoker` (`prosecdef = false`).
+**Assinaturas idênticas — não houve incompatibilidade de nome de parâmetro.** Confirmado chamando a RPC via PostgREST (mesmo caminho HTTP que o frontend usa, com a anon key) em DEV/QA: `200 null` (sucesso, UUID de teste inexistente). A mesma chamada em produção, antes da correção, devolvia o erro relatado — reproduzindo o bug de forma isolada e definitiva.
+
+### GRANTS
+
+`roles_with_execute: {anon, authenticated, postgres, service_role}` em ambos os ambientes — grants corretos, sem alteração necessária.
+
+### SCHEMA CACHE
+
+**Não foi a causa.** A função nem existia no banco de produção — não havia nada para o PostgREST cachear. Nenhum reload de cache foi necessário; aplicar a migration (que cria a função) já é suficiente, e PostgREST reconheceu a função imediatamente após o `db push` (confirmado pela chamada HTTP seguinte, sem qualquer reload manual).
+
+### TESTE RPC DIRETO
+
+Antes da correção (produção): `curl POST .../rest/v1/rpc/rpc_documento_final_os` com `p_os_id` de teste → `404 PGRST202` (erro idêntico ao relatado pelo usuário).
+Depois da correção (produção, mesmo comando): `200 null` — função encontrada e executada com sucesso.
+
+### CORREÇÃO APLICADA
+
+Nenhuma mudança de código. `npx supabase db push --project-ref wtxbodhqyasdlmyoyjur` aplicando exclusivamente `20260820190000_p3_doc_os_final01.sql` (a mesma migration já testada 14/14 em DEV/QA — função nova, sem tabela/coluna/dado alterado), **com autorização explícita do usuário antes de escrever em produção**. `supabase migration list --project-ref wtxbodhqyasdlmyoyjur` confirma `local == remote` em 100% das migrations depois da correção.
+
+Adicionalmente, corrigido um problema real encontrado durante a investigação do item 15 do pedido (não estava relacionado à causa raiz, mas violava a exigência de não expor erro técnico ao usuário): `OsDocumentoFinal.vue` estava passando `error.message` (texto cru do Postgres/PostgREST) para o `toast` de erro. Corrigido para logar o erro completo só no `console.error` e mostrar ao usuário a mesma mensagem genérica já usada no corpo da página; adicionado botão "Tentar novamente" ao estado de erro (sugerido no item 15 do pedido). Verificado ao vivo: UUID inválido → toast e corpo mostram só a mensagem genérica, console mostra o erro técnico completo, "Imprimir"/"Baixar PDF" seguem desabilitados, "Tentar novamente" reexecuta a chamada.
+
+### DOCUMENTO / VALORES / IMPRIMIR / BAIXAR PDF (pós-correção)
+
+Não houve mudança na lógica da RPC nem do frontend além do tratamento de erro acima — os resultados da seção "Verificação ao vivo" mais acima continuam válidos (RPC idêntica, mesma migration, agora também em produção). Confirmado ao vivo em DEV/QA depois do fix de erro: fluxo feliz (peças/mão de obra/resumo financeiro) segue idêntico ao já documentado.
+
+### REGRESSÃO
+
+`npm run build` limpo. Suíte pgTAP completa (11 arquivos, incluindo `110_documento_final_os.sql`) executada de novo contra DEV/QA depois da correção — 0 falhas. `supabase migration list` em produção — 100% sincronizado, nenhuma outra divergência introduzida.
+
+### Risco estrutural (não corrigido nesta etapa, já registrado anteriormente na memória do projeto)
+
+Este é o **4º incidente** com a mesma causa raiz (auto-commit/auto-merge sem confirmação + `deploy.yml` sem gate de schema) em 4 dias corridos (17/08, 19/08, 20/08 ×2). O código da correção deste bug específico está pronto e verificado; o mecanismo que causa a classe inteira de incidentes continua sem gate. Recomendação permanece: construir um gate de CI que bloqueie deploy de frontend quando `supabase migration list` do ambiente de destino mostrar migration pendente, e/ou revisar o hook de auto-commit/merge para não fechar PRs automaticamente sem revisão.
