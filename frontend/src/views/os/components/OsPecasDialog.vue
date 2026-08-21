@@ -19,7 +19,11 @@ const props = defineProps({
   podeBaixarPeca: Boolean,
   podeMovimentarEstoque: Boolean,
   podeBaixarLivre: Boolean,
+  podeEditarEscopo: Boolean,
+  podeRemoverEscopo: Boolean,
   baixarPeca: { type: Function, required: true },
+  abrirEditarEscopo: { type: Function, default: null },
+  abrirRemoverEscopo: { type: Function, default: null },
 })
 
 const visible = defineModel('visible', { default: false })
@@ -68,10 +72,19 @@ function registrarUtilizacao(item) {
             {{ item.peca?.descricao }}
             <Tag v-if="item.origem === 'adicional'" severity="warn" value="adicional" style="margin-left:0.3rem;font-size:0.6rem" />
           </span>
-          <span class="hint">Aprovada: {{ item.quantidade }} · Utilizada: {{ item.quantidade - item.restante }} · <strong :class="{ 'texto-pendente': item.restante > 0 }">Pendente: {{ item.restante }}</strong></span>
+          <span class="hint">
+            Escopo: {{ item.quantidade }}<span v-if="item.quantidadeAprovada != null && item.quantidadeAprovada !== item.quantidade"> (aprovado {{ item.quantidadeAprovada }})</span>
+            · Utilizada: {{ item.quantidade - item.restante }} · <strong :class="{ 'texto-pendente': item.restante > 0 }">Pendente: {{ item.restante }}</strong>
+          </span>
         </div>
-        <Button v-if="podeBaixarPeca && podeMovimentarEstoque && item.restante > 0" label="Registrar utilização" size="small" text @click="registrarUtilizacao(item)" />
-        <Tag v-else-if="item.restante === 0" severity="success" value="totalmente utilizada" style="font-size:0.65rem" />
+        <div class="item-previsto-acoes">
+          <Button v-if="podeBaixarPeca && podeMovimentarEstoque && item.restante > 0" label="Registrar utilização" size="small" text @click="registrarUtilizacao(item)" />
+          <Tag v-else-if="item.restante === 0" severity="success" value="totalmente utilizada" style="font-size:0.65rem" />
+          <template v-if="item.escopoStatus === 'pendente' && item.escopoId">
+            <Button v-if="podeEditarEscopo" icon="pi pi-pencil" size="small" text aria-label="Editar quantidade" @click="abrirEditarEscopo(item)" />
+            <Button v-if="podeRemoverEscopo" icon="pi pi-trash" size="small" text severity="danger" aria-label="Remover da OS" @click="abrirRemoverEscopo(item)" />
+          </template>
+        </div>
       </li>
     </ul>
 
@@ -181,6 +194,12 @@ function registrarUtilizacao(item) {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+}
+.item-previsto-acoes {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
 }
 .texto-pendente {
   color: var(--warning);
