@@ -15,7 +15,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check-prod-schema:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify production has every local migration applied
+        env:
+          PROD_DB_URL: ${{ secrets.SUPABASE_PROD_DB_URL }}
+        run: |
+          if [ -z "$PROD_DB_URL" ]; then
+            echo "::error::Secret SUPABASE_PROD_DB_URL is not set — cannot verify production schema before deploying. Refusing to deploy blind."
+            exit 1
+          fi
+
+          applied="$(psql "$PROD_DB_URL" -Atqc "select version from supabase_migrations.schema_migrations order by version;")"
+          missing=0
+          for f in supabase/migrations/*.sql; do
+            version="$(basename "$f" | cut -d'_' -f1)"
+            if ! grep -qx "$version" <<< "$applied"; then
+              echo "::error::Migration not applied to production: $(basename "$f")"
+              missing=1
+            fi
+          done
+
+          if [ "$missing" = "1" ]; then
+            echo ""
+            echo "Production schema is behind the migrations in this branch. Aborting deploy — apply the missing migration(s) to production first (supabase db push --project-ref <prod ref>), then re-run this workflow."
+            exit 1
+          fi
+          echo "Production schema is up to date with all local migrations."
+
   build:
+    needs: check-prod-schema
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
