@@ -68,11 +68,11 @@ function dispensar(item) {
           {{ item.descricao }}
           <Tag v-if="item.origem === 'adicional'" severity="warn" :value="'AD-' + String(item.numeroAdicional).padStart(3, '0')" style="margin-left:0.3rem;font-size:0.6rem" />
         </span>
-        <span class="servico-status hint">{{ item.execucao_status === 'executado' ? 'Concluído' : item.execucao_status === 'cancelado' ? 'Dispensado' : 'Pendente' }}</span>
+        <span class="servico-status hint">{{ item.execucao_status === 'executado' ? 'Concluído' : item.execucao_status === 'cancelado' ? 'Removido' : 'Pendente' }}</span>
         <span class="servico-acoes" @click.stop>
           <template v-if="podeAgir(item)">
             <Button icon="pi pi-check" size="small" text aria-label="Marcar executado" @click="executar(item)" />
-            <Button icon="pi pi-times" size="small" text severity="danger" aria-label="Dispensar" @click="dispensar(item)" />
+            <Button icon="pi pi-times" size="small" text severity="danger" aria-label="Remover da OS" @click="dispensar(item)" />
           </template>
         </span>
       </li>
@@ -87,7 +87,7 @@ function dispensar(item) {
         <p v-if="servicoSelecionado.justificativa"><strong>Justificativa:</strong> {{ servicoSelecionado.justificativa }}</p>
         <div v-if="podeAgir(servicoSelecionado)" class="detalhe-acoes">
           <Button label="Marcar executado" size="small" @click="executar(servicoSelecionado); servicoSelecionado = null" />
-          <Button label="Dispensar" size="small" severity="danger" text @click="dispensar(servicoSelecionado); servicoSelecionado = null" />
+          <Button label="Remover da OS" size="small" severity="danger" text @click="dispensar(servicoSelecionado); servicoSelecionado = null" />
         </div>
       </div>
     </Dialog>

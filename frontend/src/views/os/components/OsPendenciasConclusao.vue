@@ -5,8 +5,18 @@ import Button from 'primevue/button'
 // OS-UX-02 — "Pendências para Conclusão" (itens 27-28 do pedido): só
 // aparece com status='aguardando_teste'. Puramente informativo, derivado de
 // dados já carregados no pai — quem decide de verdade se pode concluir
-// continua sendo a RPC rpc_concluir_os (chamada via prop `concluir`); esta
-// lista nunca bloqueia o botão sozinha, só orienta visualmente.
+// continua sendo a RPC rpc_concluir_os (chamada via prop `concluir`, que a
+// partir da ETAPA OS-ESCOPO-04 é `solicitarConclusao` no pai — mostra um
+// resumo antes de concluir quando há item não utilizado, mas nunca esconde
+// o botão por causa disso); esta lista nunca bloqueia o botão sozinha, só
+// orienta visualmente.
+//
+// ETAPA OS-ESCOPO-04 (seção 21/22 do pedido): "peça aprovada não utilizada"
+// e "serviço aprovado não executado" DEIXARAM de ser bloqueio — a RPC não
+// barra mais por isso. Por isso essas duas viraram pendências INFORMATIVAS
+// (nunca entram no cálculo de `tudoOk`/exibição do botão) — só as pendências
+// REAIS (checklist, fotos, adicional aguardando decisão do cliente,
+// apontamento aberto) continuam controlando se o botão aparece.
 const props = defineProps({
   checklistItens: { type: Array, default: () => [] },
   respostas: { type: Array, default: () => [] },
@@ -55,13 +65,19 @@ const apontamentosAbertos = computed(() => props.executores.filter((e) => e.ativ
 // aprovado + execucao_status pendente/parcial), só não aparecia na lista.
 const pecasAprovadasPendentes = computed(() => props.itensParaBaixa.filter((i) => i.restante > 0).length)
 
+// Pendências que REALMENTE bloqueiam a conclusão na RPC (rpc_concluir_os).
 const pendencias = computed(() => [
   { label: checklistFaltando.value > 0 ? `${checklistFaltando.value} item(ns) obrigatório(s) do checklist pendente(s)` : 'Checklist obrigatório concluído', ok: checklistOk.value },
-  { label: servicosPendentes.value > 0 ? `${servicosPendentes.value} serviço(s) pendente(s)` : 'Serviços executados', ok: servicosPendentes.value === 0 },
   { label: fotosFaltando.value.length > 0 ? `Foto obrigatória faltando: ${fotosFaltando.value.join('/')}` : 'Fotos obrigatórias anexadas', ok: fotosOk.value },
   { label: adicionaisPendentes.value > 0 ? `${adicionaisPendentes.value} adicional(is) aguardando aprovação` : 'Sem adicionais aguardando aprovação', ok: adicionaisPendentes.value === 0 },
-  { label: pecasAprovadasPendentes.value > 0 ? `${pecasAprovadasPendentes.value} peça(s) aprovada(s) ainda não utilizada(s)` : 'Peças aprovadas utilizadas', ok: pecasAprovadasPendentes.value === 0 },
   { label: apontamentosAbertos.value > 0 ? `${apontamentosAbertos.value} apontamento(s) em aberto` : 'Nenhum apontamento aberto', ok: apontamentosAbertos.value === 0 },
+])
+
+// Informativas — nunca bloqueiam o botão (ETAPA OS-ESCOPO-04): aprovado não
+// é obrigatoriamente utilizado/executado. Aparecem só para orientar.
+const pendenciasInformativas = computed(() => [
+  { label: servicosPendentes.value > 0 ? `${servicosPendentes.value} serviço(s) aprovado(s) ainda não executado(s)` : 'Serviços executados', ok: servicosPendentes.value === 0 },
+  { label: pecasAprovadasPendentes.value > 0 ? `${pecasAprovadasPendentes.value} peça(s) aprovada(s) ainda não utilizada(s)` : 'Peças aprovadas utilizadas', ok: pecasAprovadasPendentes.value === 0 },
 ])
 
 const tudoOk = computed(() => pendencias.value.every((p) => p.ok))
@@ -75,7 +91,14 @@ const tudoOk = computed(() => pendencias.value.every((p) => p.ok))
         <i :class="p.ok ? 'pi pi-check' : 'pi pi-times'"></i>
         <span>{{ p.label }}</span>
       </li>
+      <li v-for="(p, i) in pendenciasInformativas" :key="'info-' + i" class="pendencia-informativa">
+        <i class="pi pi-info-circle"></i>
+        <span>{{ p.label }}</span>
+      </li>
     </ul>
+    <p v-if="tudoOk && pendenciasInformativas.some((p) => !p.ok)" class="hint-informativo">
+      Isso não impede a conclusão — só entra no documento final/cobrança o que foi efetivamente utilizado/executado.
+    </p>
     <Button v-if="tudoOk && podeTransicionar" label="Concluir serviço" class="btn-gradiente" @click="concluir" />
   </div>
 </template>
@@ -122,6 +145,17 @@ const tudoOk = computed(() => pendencias.value.every((p) => p.ok))
 }
 .pendencia-falta i {
   color: var(--danger);
+}
+.pendencia-informativa {
+  color: var(--text-muted);
+}
+.pendencia-informativa i {
+  color: var(--text-muted);
+}
+.hint-informativo {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: -6px 0 14px;
 }
 .btn-gradiente :deep(.p-button) {
   background: var(--accent-gradient);

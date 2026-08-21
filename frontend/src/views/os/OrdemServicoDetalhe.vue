@@ -57,6 +57,10 @@ const osAdicionais = ref([])
 const osFotos = ref([])
 const checklistTemplateAtual = ref(null)
 const auditoriaEventos = ref([])
+// ETAPA OS-ESCOPO-04 — escopo operacional da OS (fonte de verdade para
+// conclusão/cobrança/documento final a partir desta etapa; orcamento_itens
+// continua sendo o histórico imutável do que foi aprovado).
+const osEscopoItens = ref([])
 
 function formatarMoeda(valor) {
   return (valor ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -78,6 +82,10 @@ const podeAnexarFoto = computed(() => ['executor', 'encarregado', 'suporte_admin
 const podeExcluirOS = computed(() => ['encarregado', 'administrador_tecnico'].includes(auth.perfil))
 const podeCancelarOS = computed(() => ['encarregado', 'administrador_tecnico'].includes(auth.perfil))
 const podeRestaurarOS = computed(() => auth.perfil === 'administrador_tecnico')
+// ETAPA OS-ESCOPO-04 (item 26 do pedido) — mesmos perfis que já editam
+// preço/escopo comercial (BR-010), nunca executor.
+const podeEditarEscopo = computed(() => ['encarregado', 'administrador_tecnico'].includes(auth.perfil))
+const podeRemoverEscopo = computed(() => ['encarregado', 'administrador_tecnico'].includes(auth.perfil))
 
 const NOVENTA_DIAS_MS = 90 * 24 * 60 * 60 * 1000
 const prazoGarantiaAte = computed(() => {
@@ -165,6 +173,12 @@ async function carregar() {
     garantiaItensVinculados.value = []
   }
   itensOsOrigemParaGarantia.value = orcamentoItens.value
+
+  const { data: respEscopo } = await supabase
+    .from('os_escopo_itens')
+    .select('id, origem_tipo, orcamento_item_id, os_adicional_item_id, peca_id_override, descricao_override, quantidade_escopo, valor_unitario_override, execucao_status, removido_em, motivo_remocao')
+    .eq('os_id', osId.value)
+  osEscopoItens.value = respEscopo ?? []
 
   const { data: respAdicionais } = await supabase
     .from('os_adicionais')
@@ -576,30 +590,50 @@ function quantidadeJaBaixada(itemId, origem) {
     .reduce((soma, m) => soma + (m.tipo === 'estorno_saida' ? -Number(m.quantidade) : Number(m.quantidade)), 0)
 }
 
+// ETAPA OS-ESCOPO-04 — os_escopo_itens é a fonte de verdade do teto
+// operacional (pode ter sido reduzido via editarItemEscopo) e de remoção
+// (item removido não aparece mais como "previsto"). Item sem linha de
+// escopo (não deveria acontecer numa OS criada depois desta etapa) cai no
+// aprovado bruto, mesmo fallback defensivo do backend.
+function escopoDoItem(origem, itemId) {
+  const campo = origem === 'adicional' ? 'os_adicional_item_id' : 'orcamento_item_id'
+  return osEscopoItens.value.find((e) => e[campo] === itemId) ?? null
+}
+
 const itensParaBaixa = computed(() => {
   const doOrcamento = os.value?.orcamento_id
     ? orcamentoItens.value
         .filter((i) => i.peca_id && i.status_aprovacao === 'aprovado')
-        .map((i) => ({ chave: `orc:${i.id}`, origem: 'orcamento', id: i.id, peca_id: i.peca_id, descricao: i.descricao, quantidade: i.quantidade, peca: i.peca, restante: i.quantidade - quantidadeJaBaixada(i.id, 'orcamento') }))
+        .map((i) => {
+          const escopo = escopoDoItem('orcamento', i.id)
+          const teto = escopo?.quantidade_escopo ?? i.quantidade
+          return {
+            chave: `orc:${i.id}`, origem: 'orcamento', id: i.id, peca_id: escopo?.peca_id_override ?? i.peca_id,
+            descricao: escopo?.descricao_override ?? i.descricao, quantidade: teto, quantidadeAprovada: i.quantidade, peca: i.peca,
+            restante: teto - quantidadeJaBaixada(i.id, 'orcamento'), escopoId: escopo?.id ?? null, escopoStatus: escopo?.execucao_status ?? 'pendente',
+          }
+        })
+        .filter((i) => i.escopoStatus !== 'cancelado')
     : []
   const daGarantia = os.value?.os_origem_id
     ? garantiaItensVinculados.value
         .filter((v) => v.item?.peca_id)
-        .map((v) => ({ chave: `orc:${v.item.id}`, origem: 'orcamento', id: v.item.id, peca_id: v.item.peca_id, descricao: v.item.descricao, quantidade: v.item.quantidade, peca: v.item.peca, restante: v.item.quantidade - quantidadeJaBaixada(v.item.id, 'orcamento') }))
+        .map((v) => ({ chave: `orc:${v.item.id}`, origem: 'orcamento', id: v.item.id, peca_id: v.item.peca_id, descricao: v.item.descricao, quantidade: v.item.quantidade, peca: v.item.peca, restante: v.item.quantidade - quantidadeJaBaixada(v.item.id, 'orcamento'), escopoId: null, escopoStatus: 'pendente' }))
     : []
   const doAdicional = osAdicionais.value.flatMap((a) =>
     (a.os_adicional_itens ?? [])
       .filter((i) => i.peca_id && i.status_aprovacao === 'aprovado')
-      .map((i) => ({
-        chave: `adc:${i.id}`,
-        origem: 'adicional',
-        id: i.id,
-        peca_id: i.peca_id,
-        descricao: `[AD-${String(a.numero).padStart(3, '0')}] ${i.descricao}`,
-        quantidade: i.quantidade,
-        peca: i.peca,
-        restante: i.quantidade - quantidadeJaBaixada(i.id, 'adicional'),
-      }))
+      .map((i) => {
+        const escopo = escopoDoItem('adicional', i.id)
+        const teto = escopo?.quantidade_escopo ?? i.quantidade
+        return {
+          chave: `adc:${i.id}`, origem: 'adicional', id: i.id, peca_id: escopo?.peca_id_override ?? i.peca_id,
+          descricao: `[AD-${String(a.numero).padStart(3, '0')}] ${escopo?.descricao_override ?? i.descricao}`,
+          quantidade: teto, quantidadeAprovada: i.quantidade, peca: i.peca,
+          restante: teto - quantidadeJaBaixada(i.id, 'adicional'), escopoId: escopo?.id ?? null, escopoStatus: escopo?.execucao_status ?? 'pendente',
+        }
+      })
+      .filter((i) => i.escopoStatus !== 'cancelado')
   )
   return [...doOrcamento, ...daGarantia, ...doAdicional]
 })
@@ -672,9 +706,92 @@ async function confirmarCancelarItem() {
     toast.add({ severity: 'error', summary: 'Erro ao cancelar item', detail: error.message, life: 6000 })
     return
   }
-  toast.add({ severity: 'success', summary: 'Item dispensado (auditado)', life: 3000 })
+  toast.add({ severity: 'success', summary: 'Item removido do escopo da OS (auditado)', life: 3000 })
   dialogoCancelarItemAberto.value = false
   await carregar()
+}
+
+// ---------- ETAPA OS-ESCOPO-04: escopo operacional (editar/remover item) ----------
+const dialogoRemoverEscopoAberto = ref(false)
+const escopoParaRemover = ref(null)
+const motivoRemocaoEscopo = ref('')
+function abrirRemoverEscopo(item) {
+  escopoParaRemover.value = item
+  motivoRemocaoEscopo.value = ''
+  dialogoRemoverEscopoAberto.value = true
+}
+async function confirmarRemoverEscopo() {
+  if (!motivoRemocaoEscopo.value || motivoRemocaoEscopo.value.trim().length < 5) {
+    toast.add({ severity: 'warn', summary: 'Informe o motivo (mín. 5 caracteres)', life: 4000 })
+    return
+  }
+  const { error } = await supabase.rpc('rpc_remover_item_escopo_os', {
+    p_escopo_item_id: escopoParaRemover.value.escopoId,
+    p_motivo: motivoRemocaoEscopo.value,
+  })
+  if (error) {
+    toast.add({ severity: 'error', summary: 'Erro ao remover item', detail: error.message, life: 7000 })
+    return
+  }
+  toast.add({ severity: 'success', summary: 'Item removido do escopo da OS (auditado)', life: 3000 })
+  dialogoRemoverEscopoAberto.value = false
+  await carregar()
+}
+
+const dialogoEditarEscopoAberto = ref(false)
+const escopoParaEditar = ref(null)
+const formEditarEscopo = ref({ quantidade: null, motivo: '' })
+function abrirEditarEscopo(item) {
+  escopoParaEditar.value = item
+  formEditarEscopo.value = { quantidade: item.quantidade, motivo: '' }
+  dialogoEditarEscopoAberto.value = true
+}
+async function confirmarEditarEscopo() {
+  if (!formEditarEscopo.value.quantidade || formEditarEscopo.value.quantidade <= 0) {
+    toast.add({ severity: 'warn', summary: 'Informe uma quantidade válida', life: 4000 })
+    return
+  }
+  if (!formEditarEscopo.value.motivo || formEditarEscopo.value.motivo.trim().length < 5) {
+    toast.add({ severity: 'warn', summary: 'Informe o motivo (mín. 5 caracteres)', life: 4000 })
+    return
+  }
+  const { error } = await supabase.rpc('rpc_editar_item_escopo_os', {
+    p_escopo_item_id: escopoParaEditar.value.escopoId,
+    p_quantidade: formEditarEscopo.value.quantidade,
+    p_motivo: formEditarEscopo.value.motivo,
+  })
+  if (error) {
+    toast.add({ severity: 'error', summary: 'Erro ao editar item', detail: error.message, life: 7000 })
+    return
+  }
+  toast.add({ severity: 'success', summary: 'Escopo do item atualizado (auditado)', life: 3000 })
+  dialogoEditarEscopoAberto.value = false
+  await carregar()
+}
+
+// ---------- Conclusão com resumo de escopo pendente (seção 22 do pedido) ----------
+// "Aprovado" não significa mais "obrigatório usar" — a RPC não bloqueia mais
+// por isso. A UI só informa o que ficou sem usar/executar ANTES de concluir,
+// nunca impede a decisão do usuário.
+const dialogoConfirmarConclusaoAberto = ref(false)
+const resumoEscopoPendente = ref({ pecas_nao_utilizadas: 0, servicos_nao_executados: 0 })
+async function solicitarConclusao() {
+  const { data, error } = await supabase.rpc('rpc_resumo_escopo_pendente_os', { p_os_id: osId.value })
+  if (error) {
+    toast.add({ severity: 'error', summary: 'Erro ao verificar escopo', detail: error.message, life: 6000 })
+    return
+  }
+  const pendente = (data?.pecas_nao_utilizadas ?? 0) + (data?.servicos_nao_executados ?? 0)
+  if (pendente > 0) {
+    resumoEscopoPendente.value = data
+    dialogoConfirmarConclusaoAberto.value = true
+    return
+  }
+  await concluir()
+}
+async function confirmarConcluirMesmoAssim() {
+  dialogoConfirmarConclusaoAberto.value = false
+  await concluir()
 }
 
 // ---------- Adicionais ----------
@@ -884,7 +1001,7 @@ watch(osId, carregar, { immediate: true })
       :apontamento-aberto="apontamentoAberto"
       :abrir-prazo="abrirPrazo"
       :confirmar-transicao="confirmarTransicao"
-      :concluir="concluir"
+      :concluir="solicitarConclusao"
       :liberar="liberar"
       :confirmar-abrir-garantia="confirmarAbrirGarantia"
       :abrir-retorno-fase="abrirRetornoFase"
@@ -940,7 +1057,7 @@ watch(osId, carregar, { immediate: true })
       :executores="executores"
       :itens-para-baixa="itensParaBaixa"
       :pode-transicionar="podeTransicionar"
-      :concluir="concluir"
+      :concluir="solicitarConclusao"
     />
 
     <div v-if="os.status === 'concluida'" class="card">
@@ -1005,7 +1122,11 @@ watch(osId, carregar, { immediate: true })
       :pode-baixar-peca="podeBaixarPeca"
       :pode-movimentar-estoque="podeMovimentarEstoque"
       :pode-baixar-livre="podeBaixarLivre"
+      :pode-editar-escopo="podeEditarEscopo"
+      :pode-remover-escopo="podeRemoverEscopo"
       :baixar-peca="baixarPeca"
+      :abrir-editar-escopo="abrirEditarEscopo"
+      :abrir-remover-escopo="abrirRemoverEscopo"
     />
     <OsFotosDialog
       v-model:visible="dialogFotosAberto"
@@ -1088,12 +1209,49 @@ watch(osId, carregar, { immediate: true })
       </template>
     </Dialog>
 
-    <Dialog v-model:visible="dialogoCancelarItemAberto" modal header="Dispensar item aprovado" style="width: 420px">
-      <p class="hint">Cancelar um item aprovado exige motivo — fica registrado na trilha de auditoria.</p>
+    <Dialog v-model:visible="dialogoCancelarItemAberto" modal header="Remover serviço da OS" style="width: 420px">
+      <p class="hint">Remove este serviço do escopo operacional desta OS — o orçamento aprovado não é alterado, fica preservado no histórico. Exige motivo, fica registrado na trilha de auditoria.</p>
       <Textarea v-model="motivoCancelamento" rows="3" autoResize placeholder="Motivo (mínimo 5 caracteres)" style="width:100%" />
       <template #footer>
         <Button label="Voltar" text @click="dialogoCancelarItemAberto = false" />
-        <Button label="Confirmar dispensa" severity="danger" @click="confirmarCancelarItem" />
+        <Button label="Remover" severity="danger" @click="confirmarCancelarItem" />
+      </template>
+    </Dialog>
+
+    <Dialog v-model:visible="dialogoRemoverEscopoAberto" modal header="Remover item da OS" style="width: 420px">
+      <p class="hint">Remove este item do escopo operacional desta OS — o orçamento aprovado não é alterado, fica preservado no histórico. Exige motivo, fica registrado na trilha de auditoria.</p>
+      <Textarea v-model="motivoRemocaoEscopo" rows="3" autoResize placeholder="Motivo (mínimo 5 caracteres) — ex.: Não foi necessário durante a execução" style="width:100%" />
+      <template #footer>
+        <Button label="Voltar" text @click="dialogoRemoverEscopoAberto = false" />
+        <Button label="Remover" severity="danger" @click="confirmarRemoverEscopo" />
+      </template>
+    </Dialog>
+
+    <Dialog v-model:visible="dialogoEditarEscopoAberto" modal header="Editar quantidade do item" style="width: 420px">
+      <p class="hint">Reduz a quantidade prevista para uso nesta OS (nunca pode passar da quantidade aprovada no orçamento — aumento exige Adicional). O orçamento aprovado não é alterado.</p>
+      <div class="form-campo">
+        <label>Nova quantidade (aprovado: {{ escopoParaEditar?.quantidadeAprovada }})</label>
+        <input type="number" min="0.001" step="0.001" v-model.number="formEditarEscopo.quantidade" style="padding:0.4rem" />
+      </div>
+      <div class="form-campo">
+        <label>Motivo (obrigatório)</label>
+        <Textarea v-model="formEditarEscopo.motivo" rows="2" autoResize placeholder="Mínimo 5 caracteres" />
+      </div>
+      <template #footer>
+        <Button label="Voltar" text @click="dialogoEditarEscopoAberto = false" />
+        <Button label="Salvar" @click="confirmarEditarEscopo" />
+      </template>
+    </Dialog>
+
+    <Dialog v-model:visible="dialogoConfirmarConclusaoAberto" modal header="Concluir com escopo menor que o aprovado?" style="width: 460px">
+      <p class="texto-explicativo">Existem itens aprovados no orçamento que não foram utilizados/executados nesta OS. Isso não é um erro — só entram no documento final e na cobrança os itens efetivamente utilizados.</p>
+      <ul class="lista-pendencias-conclusao">
+        <li v-if="resumoEscopoPendente.pecas_nao_utilizadas > 0">{{ resumoEscopoPendente.pecas_nao_utilizadas }} peça(s) não utilizada(s)</li>
+        <li v-if="resumoEscopoPendente.servicos_nao_executados > 0">{{ resumoEscopoPendente.servicos_nao_executados }} serviço(s) não executado(s)</li>
+      </ul>
+      <template #footer>
+        <Button label="Voltar" text @click="dialogoConfirmarConclusaoAberto = false" />
+        <Button label="Concluir mesmo assim" @click="confirmarConcluirMesmoAssim" />
       </template>
     </Dialog>
 
@@ -1247,5 +1405,11 @@ watch(osId, carregar, { immediate: true })
 .info-box ul {
   margin: 4px 0 0;
   padding-left: 18px;
+}
+.lista-pendencias-conclusao {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--text-body);
 }
 </style>

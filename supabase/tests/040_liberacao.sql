@@ -13,12 +13,13 @@ security definer
 set search_path = public
 as $$
 declare
-  v_orc uuid; v_os uuid;
+  v_orc uuid; v_os uuid; v_item uuid;
 begin
   insert into orcamentos (veiculo_id, cliente_id, criado_por, status)
     values ('77777777-7777-7777-7777-777777777777', '66666666-6666-6666-6666-666666666666', auth.uid(), 'rascunho')
     returning id into v_orc;
-  insert into orcamento_itens (orcamento_id, descricao, quantidade, valor_unitario) values (v_orc, 'PGTAP Serviço ' || p_sufixo, 1, 500);
+  insert into orcamento_itens (orcamento_id, descricao, quantidade, valor_unitario) values (v_orc, 'PGTAP Serviço ' || p_sufixo, 1, 500)
+    returning id into v_item;
   update orcamentos set status = 'enviado', autorizado_por_nome = 'Teste', comprovante_path = 'x' where id = v_orc;
   -- ETAPA 5 (P1-B)/APR-002: aprovação passou a ser por ITEM — o fixture
   -- bypassava a máquina de estados direto no orçamento (comentário original
@@ -32,6 +33,10 @@ begin
     where orcamento_id = v_orc;
   update orcamentos set status = 'aprovado' where id = v_orc;
   v_os := rpc_criar_os('77777777-7777-7777-7777-777777777777'::uuid, 'externa'::tipo_os, v_orc);
+  -- ETAPA OS-ESCOPO-04: rpc_criar_cobranca agora só soma item efetivamente
+  -- executado — o fixture precisa marcar isso antes de forçar a conclusão
+  -- (senão a cobrança fica R$0,00, o que não é o que este teste verifica).
+  perform rpc_marcar_item_orcamento_execucao(v_item, 'executado');
   -- força a OS direto para 'concluida' via update de teste (bypassa a máquina de estados só para montar o fixture)
   update ordens_servico set status = 'concluida' where id = v_os;
   return v_os;

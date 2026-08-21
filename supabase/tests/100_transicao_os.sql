@@ -49,17 +49,20 @@ language plpgsql
 security definer
 set search_path = public
 as $$
-declare v_orc uuid; v_os uuid; v_cob uuid; v_parcela uuid;
+declare v_orc uuid; v_os uuid; v_cob uuid; v_parcela uuid; v_item uuid;
 begin
   insert into orcamentos (veiculo_id, cliente_id, criado_por, status)
     values ('f3000000-0000-0000-0000-000000000004', 'f3000000-0000-0000-0000-000000000003', auth.uid(), 'rascunho')
     returning id into v_orc;
-  insert into orcamento_itens (orcamento_id, descricao, quantidade, valor_unitario) values (v_orc, 'PGTAP Serviço FLOW006', 1, 500);
+  insert into orcamento_itens (orcamento_id, descricao, quantidade, valor_unitario) values (v_orc, 'PGTAP Serviço FLOW006', 1, 500)
+    returning id into v_item;
   update orcamentos set status = 'enviado', autorizado_por_nome = 'Teste', comprovante_path = 'x' where id = v_orc;
   update orcamento_itens set status_aprovacao = 'aprovado', meio_aprovacao = 'sistema',
     autorizado_por_nome = 'Teste', autorizado_em = now(), registrado_por = auth.uid() where orcamento_id = v_orc;
   update orcamentos set status = 'aprovado' where id = v_orc;
   v_os := rpc_criar_os('f3000000-0000-0000-0000-000000000004'::uuid, 'externa'::tipo_os, v_orc);
+  -- ETAPA OS-ESCOPO-04: cobrança só soma item efetivamente executado.
+  perform rpc_marcar_item_orcamento_execucao(v_item, 'executado');
   update ordens_servico set status = 'concluida' where id = v_os;
   v_cob := rpc_criar_cobranca('f3000000-0000-0000-0000-000000000003'::uuid, array[v_os], null);
   perform rpc_parcelar_cobranca(v_cob, jsonb_build_array(jsonb_build_object('numero_parcela', 1, 'valor', 500, 'vencimento', current_date)));

@@ -58,9 +58,15 @@ begin
   -- GARANTIA, não o percurso completo de estados até 'concluida'.
   update ordens_servico set status = 'concluida' where id = v_os;
   v_cob := rpc_criar_cobranca('aaaaaaaa-0000-0000-0000-000000000001'::uuid, array[v_os], null);
-  perform rpc_parcelar_cobranca(v_cob, jsonb_build_array(jsonb_build_object('numero_parcela', 1, 'valor', 300, 'vencimento', current_date)));
-  select id into v_parcela from parcelas where cobranca_id = v_cob;
-  perform rpc_registrar_recebimento(v_parcela, 300, 'pix', current_date);
+  -- ETAPA OS-ESCOPO-04: cobrança agora só soma item efetivamente
+  -- executado/utilizado — este item nunca é baixado na OS ORIGINAL (só na
+  -- de garantia, mais abaixo, e não pode ser baixado aqui: isso mudaria o
+  -- saldo esperado pela asserção de saldo_atual=19 no fim do arquivo), então
+  -- a cobrança sai R$0,00. Liberar via Termo de Ciência de Débito em vez de
+  -- pagamento (mesmo padrão de supabase/tests/040_liberacao.sql, LIB-002) —
+  -- não depende de valor batido, e não é o que este teste verifica.
+  insert into storage.objects (bucket_id, name) values ('comprovantes', 'termos/pgtap-reggar-' || v_cob::text || '.pdf');
+  perform rpc_registrar_termo_ciencia(v_cob, 'termos/pgtap-reggar-' || v_cob::text || '.pdf', 'PGTAP Responsável Teste', '000.000.000-00', null);
   perform rpc_liberar_os(v_os);
 
   v_gar := rpc_criar_os_garantia(v_os, array[v_item], null);
