@@ -381,3 +381,147 @@ direto numa expressão inline do `<template>` de um componente
 silenciosamente em produção — a correção geral é sempre envolver a
 chamada numa função declarada no `<script setup>` e usar essa função como
 handler, nunca a API do navegador diretamente no template.
+
+---
+
+## Addendum — BUG-ORC-CLASSIFICACAO-03 (2026-09-02)
+
+Peças aparecendo agrupadas como "Mão de Obra" no PDF de um orçamento real
+em **produção** (`wtxbodhqyasdlmyoyjur`), fazendo o subtotal de mão de obra
+mostrar R$ 2.373,54 em vez do total correto de R$ 230,00.
+
+### 1 — Auditoria do orçamento real
+
+Localizado via consulta direta em produção (só leitura):
+`orcamento_id = 'b63cfb7e-c18b-4d19-9d0a-4b60a50c941d'`. Tabela de
+diagnóstico (subconjunto — os itens de "Retentor"):
+
+| descricao | peca_id | servico_id | natureza | valor_total |
+|---|---|---|---|---|
+| Retentor do Comando 02178 Sabo | NULL | NULL | `servico_avulso` | 75,00 |
+| Retentor do Comando GM 02178 | NULL | NULL | `servico_avulso` | 36,00 |
+| Retirada de Vazamentos e Troca de Discos de Freio Dianteiros | NULL | NULL | `servico_avulso` | 230,00 |
+
+**Causa raiz = A) registro persistido incorreto, não B/C/D.** A hipótese
+inicial de trabalho ("a RPC nunca devolvia `natureza`") foi verificada e
+**descartada**: `rpc_dados_pdf_orcamento` já devolvia `natureza`
+corretamente tanto em DEV/QA quanto em **produção** desde
+`20260818160000_p2c_pdf_orcamento_dados_comerciais.sql` (confirmado lendo
+a definição viva da função nos dois ambientes via `pg_get_functiondef`) —
+essa etapa anterior já tinha corrigido exatamente esse ponto e o comentário
+da própria migration documenta isso. `OrcamentoPdf.vue`/`pdfOrcamento.js`
+já filtravam por `item.natureza === 'peca'` (nunca por texto) desde então.
+
+A classificação `servico_avulso` para esses itens está **correta do ponto
+de vista da regra estrutural formalizada na seção 2 do pedido**
+(`peca_id IS NULL` e `servico_id IS NULL` ⇒ não há como o sistema saber
+que é peça) — o problema é que `peca_id` nunca deveria ter ficado nulo
+para itens que são fisicamente peças.
+
+### 3 — Auditoria da criação de item de peça (causa raiz real)
+
+`frontend/src/views/orcamentos/OrcamentosList.vue`, função
+`adicionarItemDoFormulario()`: no modo "Peça", o campo de seleção da peça
+tinha `placeholder="Peça (opcional)"` e **nenhuma validação** exigia que
+`peca_id` estivesse de fato preenchido antes de aceitar o item — só
+`descricao`/`quantidade` eram checados. Um item digitado como texto livre
+no modo "Peça" (sem selecionar nada no Select) era salvo com
+`peca_id: null`, o que faz a coluna gerada `orcamento_itens.natureza`
+computar `servico_avulso` — a única saída possível para o modelo estrutural
+atual quando os dois ids são nulos. **Corrigido**: `peca_id` agora é
+obrigatório no modo "Peça" (mesma correção aplicada ao modo "Serviço
+cadastrado" para `servico_id`, mesma classe de lacuna).
+
+### 6 — FEATURE-SERVIÇOS não introduziu o bug
+
+Auditado: `natureza` é coluna gerada (`generated always as`) desde
+`20260817140100_p2_fix_natureza_gerada.sql`, nunca escrita manualmente, sem
+heurística textual em nenhum ponto do backend. A introdução do catálogo de
+Serviços não alterou a lógica de peças — a lacuna sempre existiu no
+formulário de item do orçamento, só ficou visível quando alguém
+efetivamente deixou de vincular uma peça ao catálogo.
+
+### 7 — RPC do PDF
+
+`rpc_dados_pdf_orcamento` já devolvia `natureza`; não devolvia
+`peca_id`/`servico_id` explicitamente (pedido da seção 7:
+"não obrigar o frontend a reconstruir por heurística"). Corrigido em
+`supabase/migrations/20260902100000_p5_fix_bug_orc_classificacao03.sql` —
+adiciona os dois campos ao payload de `itens`, corpo baseado na versão
+real mais recente da função (preserva `cliente.telefone`/`cliente.email`
+adicionados em 18/08 — a primeira tentativa desta correção foi escrita em
+cima de uma versão desatualizada da função lida por engano e teria
+apagado esses dois campos; corrigida antes de aplicar).
+
+### 8/18 — Agrupamento do documento
+
+Confirmado por leitura de código: `OrcamentoPdf.vue` (linha 136-137) e
+`pdfOrcamento.js` (linha 80-81) usam a **mesma** expressão
+(`i.natureza === 'peca'` / `i.natureza !== 'peca'`) sobre a **mesma** fonte
+de dados (`rpc_dados_pdf_orcamento`) — Visualizar e Baixar PDF nunca
+tiveram lógicas divergentes. Nenhuma mudança necessária nesses dois
+arquivos.
+
+### 9 — Cenário real como teste de regressão
+
+Reproduzido em `supabase/tests/130_bug_orc_classificacao03.sql`
+(ORC-TIPO-001 a 010, 10/10 verde em DEV/QA): 9 peças reais vinculadas ao
+catálogo (subtotal R$ 2.143,54) + 1 serviço avulso (R$ 230,00) = total
+R$ 2.373,54, confirmando que a RPC agora classifica exatamente 9 itens
+como peça e o subtotal de mão de obra fica em R$ 230,00 — não mais
+R$ 2.373,54.
+
+### 10 — Dados históricos afetados (NÃO corrigidos por texto)
+
+Encontrados **3 registros** com esse padrão no orçamento real auditado
+(`peca_id`/`servico_id` nulos, descrição de peça física, `natureza`
+resultante `servico_avulso` incorreta): os dois "Retentor do Comando..."
+listados acima. (O terceiro item, "Retirada de Vazamentos...", está
+corretamente classificado — é mão de obra de verdade.) Não foi feita
+varredura completa de todos os orçamentos de produção nesta rodada (fora
+do escopo desta correção pontual — auditoria adicional recomendada se
+o volume for relevante).
+
+**Nenhuma correção automática foi aplicada.** Por instrução explícita
+(seção 10), não se classifica por nome/texto. Reconstrução determinística
+via catálogo (SKU/descrição exata em `pecas`) não foi tentada nesta rodada
+— requer decisão do dono do projeto sobre qual evidência considerar
+"vínculo seguro" caso a caso. **Ação recomendada:** correção manual/
+assistida pelo encarregado, item a item, vinculando a peça real do
+catálogo (ou cadastrando-a, se ainda não existir) via edição do orçamento.
+
+### 15/16/17 — OS, estoque, Documento Final da OS
+
+Auditado por leitura de código (não exigiu mudança):
+- `rpc_criar_os`/conversão orçamento→OS não duplica nem reclassifica itens
+  — a OS lê os mesmos `orcamento_itens`, mesmo `peca_id`/`natureza`.
+- `OsServicos.vue`/`OsPecasDialog.vue` (telas da OS) já filtram por
+  `item.peca_id` diretamente (nunca por `natureza` nem texto) — imunes a
+  esse bug por construção.
+- `rpc_baixar_peca_os` já bloqueia baixa de estoque vinculada a item sem
+  `peca_id` (mão de obra) — confirmado por teste (ORC-TIPO-010).
+- `rpc_documento_final_os` (OS-ESCOPO-04) já filtra por `peca_id is not
+  null`/`is null` direto na query, não por `natureza` — mesma imunidade.
+
+### Critério de aceite — status
+
+1. ✅ peças não aparecem mais como mão de obra (a partir de itens
+   corretamente vinculados ao catálogo — itens históricos sem vínculo
+   continuam pendentes de correção manual, item 10 acima);
+2. ✅ serviços não aparecem como peças (ORC-TIPO-002/003);
+3. ✅ nenhuma heurística textual em nenhum ponto do fluxo;
+4/5/6. ✅ cenário real: peças R$ 2.143,54, mão de obra R$ 230,00 (teste);
+7. ✅ total geral R$ 2.373,54 preservado;
+8. ✅ visualização e PDF usam a mesma fonte/classificação (código idêntico);
+9. ✅ conversão orçamento → OS preserva natureza (ORC-TIPO-009, e por
+   construção — mesma tabela, nenhuma cópia);
+10. ✅ regressão completa: 197/197 pgTAP verde (12 arquivos), `npm run
+    build` limpo.
+
+**Status de ambiente:** as duas correções (`20260821190000` — fix
+não relacionado, OS-ESCOPO-04 — e `20260902100000`) estão aplicadas em
+**DEV/QA**. A correção de frontend (`OrcamentosList.vue`) está no working
+tree, testada via `npm run build`, ainda não homologada por clique real no
+browser. **Nenhuma das duas correções foi promovida a produção** —
+produção continua com o bug ativo (RPC sem `peca_id`/`servico_id`, e o
+formulário sem a validação nova) até decisão explícita de promoção.

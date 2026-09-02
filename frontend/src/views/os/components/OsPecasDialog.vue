@@ -21,6 +21,7 @@ const props = defineProps({
   podeBaixarLivre: Boolean,
   podeEditarEscopo: Boolean,
   podeRemoverEscopo: Boolean,
+  osEncerrada: Boolean,
   baixarPeca: { type: Function, required: true },
   abrirEditarEscopo: { type: Function, default: null },
   abrirRemoverEscopo: { type: Function, default: null },
@@ -80,7 +81,7 @@ function registrarUtilizacao(item) {
         <div class="item-previsto-acoes">
           <Button v-if="podeBaixarPeca && podeMovimentarEstoque && item.restante > 0" label="Registrar utilização" size="small" text @click="registrarUtilizacao(item)" />
           <Tag v-else-if="item.restante === 0" severity="success" value="totalmente utilizada" style="font-size:0.65rem" />
-          <template v-if="item.escopoStatus === 'pendente' && item.escopoId">
+          <template v-if="item.escopoStatus === 'pendente' && item.escopoId && !osEncerrada">
             <Button v-if="podeEditarEscopo" icon="pi pi-pencil" size="small" text aria-label="Editar quantidade" @click="abrirEditarEscopo(item)" />
             <Button v-if="podeRemoverEscopo" icon="pi pi-trash" size="small" text severity="danger" aria-label="Remover da OS" @click="abrirRemoverEscopo(item)" />
           </template>
