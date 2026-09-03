@@ -250,6 +250,21 @@ function adicionarItemDoFormulario() {
     toast.add({ severity: 'warn', summary: 'Preencha descrição e quantidade (maior que zero) antes de adicionar', life: 4000 })
     return
   }
+  // BUG-ORC-CLASSIFICACAO-03: item no modo "Peça" sem peca_id selecionado
+  // gravava peca_id=null — a coluna gerada orcamento_itens.natureza (derivada
+  // estruturalmente de peca_id/servico_id) então classificava esse item como
+  // 'servico_avulso' por definição (é a única saída possível quando os dois
+  // ids são nulos), fazendo a peça aparecer como mão de obra no PDF. Se a
+  // peça ainda não existe no catálogo, o caminho correto é cadastrá-la em
+  // Peças primeiro — nunca lançar como texto livre no modo "Peça".
+  if (f.tipo === 'peca' && !f.peca_id) {
+    toast.add({ severity: 'warn', summary: 'Selecione uma peça do catálogo', detail: 'Se a peça ainda não está cadastrada, cadastre-a em Peças antes de incluí-la aqui — descrição livre sem vínculo com o catálogo não é mais aceita.', life: 7000 })
+    return
+  }
+  if (f.tipo === 'servico_cadastrado' && !f.servico_id) {
+    toast.add({ severity: 'warn', summary: 'Selecione um serviço do catálogo', life: 5000 })
+    return
+  }
   const servico = f.tipo === 'servico_cadastrado' ? servicos.value.find((x) => x.id === f.servico_id) : null
   itens.value.push({
     id: null,
@@ -899,8 +914,7 @@ onMounted(() => {
             optionLabel="descricao"
             optionValue="id"
             filter
-            showClear
-            placeholder="Peça (opcional)"
+            placeholder="Selecione a peça do catálogo"
             class="add-peca"
             @update:modelValue="selecionouPecaNovoItem"
           />

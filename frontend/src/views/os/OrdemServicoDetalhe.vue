@@ -1124,6 +1124,7 @@ watch(osId, carregar, { immediate: true })
       :pode-baixar-livre="podeBaixarLivre"
       :pode-editar-escopo="podeEditarEscopo"
       :pode-remover-escopo="podeRemoverEscopo"
+      :os-encerrada="osEncerrada"
       :baixar-peca="baixarPeca"
       :abrir-editar-escopo="abrirEditarEscopo"
       :abrir-remover-escopo="abrirRemoverEscopo"
